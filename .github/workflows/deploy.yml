@@ -28,16 +28,16 @@ jobs:
 
       - name: Execute Deployment via SSM
         run: |
-          aws ssm send-command 
-            --document-name "AWS-RunShellScript" 
-            --targets "Key=tag:Name,Values=EmployeeHub-EC2" 
+          aws ssm send-command \
+            --document-name "AWS-RunShellScript" \
+            --targets "Key=tag:Name,Values=EmployeeHub-EC2" \
             --parameters 'commands=["bash /home/ubuntu/scripts/deploy.sh ${{ inputs.image_tag }}"]'
-            
+
       - name: Health Check
         run: |
           echo "Waiting for health check..."
           sleep 60
-          aws ssm send-command 
-            --document-name "AWS-RunShellScript" 
-            --targets "Key=tag:Name,Values=EmployeeHub-EC2" 
+          aws ssm send-command \
+            --document-name "AWS-RunShellScript" \
+            --targets "Key=tag:Name,Values=EmployeeHub-EC2" \
             --parameters 'commands=["bash /home/ubuntu/scripts/health-check.sh"]'
