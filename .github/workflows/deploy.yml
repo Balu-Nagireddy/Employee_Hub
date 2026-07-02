@@ -280,7 +280,7 @@ jobs:
           fi
           
           # 3. Check Employee API (internal network, checked via container exec)
-          if docker exec employee-hub-api curl -s -f --connect-timeout 5 http://localhost:8000/health > /dev/null; then
+          if docker exec employee-hub-api python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" > /dev/null 2>&1; then
             echo "✅ Employee API: HEALTHY"
           else
             echo "❌ Employee API: UNHEALTHY"
