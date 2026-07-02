@@ -20,10 +20,11 @@ terraform {
   required_version = ">= 1.6"
 
   backend "s3" {
-    bucket         = "employee-hub-terraform-state-827949090758"
-    key            = "terraform.tfstate"
-    region         = "ap-south-1"
-    encrypt        = true
+    bucket       = "employee-hub-terraform-state-827949090758"
+    key          = "terraform.tfstate"
+    region       = "ap-south-1"
+    encrypt      = true
+    use_lockfile = true
     dynamodb_table = "employee-hub-terraform-lock"
   }
 
