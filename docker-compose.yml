@@ -111,7 +111,7 @@ services:
     restart: unless-stopped
 
   postgres-exporter:
-    image: prometheuscommunity/postgres-exporter:latest
+    image: prometheuscommunity/postgres-exporter:v0.17.1
     container_name: employee-hub-postgres-exporter
     environment:
       DATA_SOURCE_NAME: "postgresql://${DB_USER:-employeehub}:${DB_PASSWORD:-admin}@postgres:5432/${DB_NAME:-employee_db}?sslmode=disable"
@@ -125,7 +125,7 @@ services:
     restart: unless-stopped
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.5.0
     container_name: employee-hub-prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -145,7 +145,7 @@ services:
     restart: unless-stopped
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:12.0.2
     container_name: employee-hub-grafana
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
@@ -166,7 +166,7 @@ services:
     restart: unless-stopped
 
   loki:
-    image: grafana/loki:latest
+    image: grafana/loki:3.5.2
     container_name: employee-hub-loki
     command: -config.file=/etc/loki/loki-config.yml
     volumes:
@@ -179,7 +179,7 @@ services:
     restart: unless-stopped
 
   promtail:
-    image: grafana/promtail:latest
+    image: grafana/promtail:3.5.2
     container_name: employee-hub-promtail
     command: -config.file=/etc/promtail/promtail-config.yml
     volumes:
@@ -193,7 +193,7 @@ services:
     restart: unless-stopped
 
   node-exporter:
-    image: prom/node-exporter:latest
+    image: prom/node-exporter:v1.9.1
     container_name: employee-hub-node-exporter
     command:
       - "--path.rootfs=/host"
