@@ -77,6 +77,9 @@ jobs:
   docker:
     name: Docker Build & Push
     needs: [terraform]
+    permissions:
+      contents: read
+      packages: write
     uses: ./.github/workflows/docker-build.yml
     with:
       image_tag: ${{ github.sha }}
