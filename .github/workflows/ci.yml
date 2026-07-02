@@ -1,319 +1,106 @@
 # =============================================================================
-# CI — Continuous Integration
+# CI/CD Orchestrator — The Hub
 #
-# Triggered on:
-#   - Push to github-actions (development branch)
-#   - Pull request to main (production branch)
-#
-# Runs in parallel:
-#   1. Terraform checks (fmt, validate)
-#   2. Backend checks (Python lint, tests)
-#   3. Frontend checks (React lint, TypeScript, build)
-#   4. Docker validation (compose config, image build)
-#
-# All jobs run independently for maximum parallelism.
+# This workflow manages the entire lifecycle from code push to deployment.
+# Sequence: CI -> Security -> Terraform -> Docker Build -> Deploy -> Summary
 # =============================================================================
 
-name: CI
+name: CI/CD Orchestrator
 
 on:
   push:
-    branches: [github-actions]
+    branches: [github-actions, main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: employee-hub-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   PROJECT_NAME: employee-hub
   IMAGE_TAG: ${{ github.sha }}
-  TF_VERSION: 1.11.3
 
-# =============================================================================
-# Jobs
-# =============================================================================
 jobs:
-  # ---------------------------------------------------------------------------
-  # Terraform Checks
-  # ---------------------------------------------------------------------------
-  terraform-checks:
-    name: Terraform Checks
+  # Phase 1: Quality Gate
+  ci:
+    name: Quality Gate
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Terraform ${{ env.TF_VERSION }}
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Cache Terraform providers
-        uses: actions/cache@v4
-        with:
-          path: terraform/.terraform
-          key: tf-${{ runner.os }}-${{ hashFiles('terraform/.terraform.lock.hcl') }}
-          restore-keys: |
-            tf-${{ runner.os }}-
-
-      - name: Terraform Format
-        id: fmt
-        run: terraform fmt -check -recursive
-        working-directory: terraform
-        continue-on-error: false
-
-      - name: Terraform Init
-        id: init
-        run: terraform init -backend=false
-        working-directory: terraform
-
-      - name: Terraform Validate
-        id: validate
-        run: terraform validate -no-color
-        working-directory: terraform
-
-      - name: Terraform dry-run plan (syntax check only, no remote state)
-        if: ${{ github.event_name == 'pull_request' }}
-        id: plan
-        run: |
-          terraform plan -no-color -out=tfplan.binary 2>&1 || true
-          terraform show -no-color tfplan.binary > tfplan.txt 2>/dev/null || echo "Plan output unavailable — backend is not initialized in CI" > tfplan.txt
-        working-directory: terraform
-        continue-on-error: true
-
-      - name: Upload Terraform plan artifact
-        if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: terraform-plan
-          path: terraform/tfplan.txt
-          retention-days: 7
-
-      - name: Print workflow summary
-        run: |
-          echo "## Terraform Checks" >> $GITHUB_STEP_SUMMARY
-          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Format | ${{ steps.fmt.outcome }}" >> $GITHUB_STEP_SUMMARY
-          echo "| Init | ${{ steps.init.outcome }}" >> $GITHUB_STEP_SUMMARY
-          echo "| Validate | ${{ steps.validate.outcome }}" >> $GITHUB_STEP_SUMMARY
-          [ -n "${{ steps.plan.outcome }}" ] && echo "| Plan | ${{ steps.plan.outcome }}" >> $GITHUB_STEP_SUMMARY
-
-  # ---------------------------------------------------------------------------
-  # Backend — Python lint & tests
-  # ---------------------------------------------------------------------------
-  backend:
-    name: Backend
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    defaults:
-      run:
-        working-directory: services/employee-api
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
+      
       - name: Setup Python
         uses: ./.github/actions/setup-python
         with:
           python-version: '3.12'
           working-directory: services/employee-api
 
-      - name: Install lint dependencies
-        run: pip install flake8 black
-
-      - name: Python Lint (flake8)
-        run: python -m flake8 app --config=.flake8 --max-line-length=120 --exclude=__pycache__,alembic --format='::warning file={file},line={line},col={col},title={code}::{text}'
-
-      - name: Python Format Check (black)
-        run: python -m black --check app --line-length=120
-
-      - name: Run unit tests
-        id: tests
-        run: python -m pytest tests/ -v --junitxml=test-results.xml
-        continue-on-error: true
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-test-results
-          path: services/employee-api/test-results.xml
-          retention-days: 7
-
-      - name: Print workflow summary
-        if: always()
+      - name: Run Python Checks
         run: |
-          echo "## Backend Checks" >> $GITHUB_STEP_SUMMARY
-          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| flake8 | ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-          echo "| black | ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-          echo "| Tests | ${{ steps.tests.outcome }}" >> $GITHUB_STEP_SUMMARY
+          pip install flake8 black
+          python -m flake8 app --max-line-length=120 --exclude=__pycache__,alembic
+          python -m black --check app --line-length=120
+          python -m pytest tests/ -v
 
-      - name: Fail on test failure
-        if: steps.tests.outcome != 'success'
-        run: exit 1
-
-  # ---------------------------------------------------------------------------
-  # Frontend — React lint, TypeScript, build
-  # ---------------------------------------------------------------------------
-  frontend:
-    name: Frontend
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    defaults:
-      run:
-        working-directory: services/frontend
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
+      - name: Setup Node
         uses: ./.github/actions/setup-node
         with:
           node-version: '20'
           working-directory: services/frontend
 
-      - name: TypeScript type check
-        id: tsc
-        run: npx tsc --noEmit
-        continue-on-error: true
-
-      - name: Build frontend
-        id: build
-        run: npm run build
-        continue-on-error: true
-
-      - name: Upload build artifacts
-        if: steps.build.outcome == 'success'
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-build
-          path: services/frontend/dist
-          retention-days: 7
-
-      - name: Print workflow summary
-        if: always()
+      - name: Run Frontend Checks
         run: |
-          echo "## Frontend Checks" >> $GITHUB_STEP_SUMMARY
-          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| TypeScript | ${{ steps.tsc.outcome }}" >> $GITHUB_STEP_SUMMARY
-          echo "| Build | ${{ steps.build.outcome }}" >> $GITHUB_STEP_SUMMARY
+          npm install
+          npx tsc --noEmit
+          npm run build
 
-      - name: Fail on TypeScript or build failure
-        if: steps.tsc.outcome != 'success' || steps.build.outcome != 'success'
-        run: exit 1
+  # Phase 2: Security Gate
+  security:
+    name: Security Scan
+    needs: [ci]
+    uses: ./.github/workflows/security.yml
+    secrets: inherit
 
-  # ---------------------------------------------------------------------------
-  # Docker Validation — Compose config & image builds (no push)
-  # ---------------------------------------------------------------------------
-  docker-validation:
-    name: Docker Validation
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  # Phase 3: Infrastructure
+  terraform:
+    name: Infrastructure
+    needs: [security]
+    uses: ./.github/workflows/terraform.yml
+    with:
+      environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
+    secrets: inherit
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+  # Phase 4: Artifacts
+  docker:
+    name: Docker Build & Push
+    needs: [terraform]
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      image_tag: ${{ github.sha }}
+    secrets: inherit
 
-      - name: Validate Docker Compose config (production)
-        id: compose-validate
-        run: docker compose -f deployments/docker/docker-compose.prod.yml config > /dev/null
-        env:
-          IMAGE_TAG: ${{ env.IMAGE_TAG }}
-          REGISTRY: 000000000000.dkr.ecr.us-east-1.amazonaws.com
-          DB_HOST: localhost
-          DB_PORT: 5432
-          DB_USER: test
-          DB_PASSWORD: test
-          DB_NAME: test
+  # Phase 5: Deployment
+  deploy:
+    name: Deploy to EC2
+    needs: [docker]
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
+      image_tag: ${{ github.sha }}
+    secrets: inherit
 
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Validate Docker build — employee-api
-        id: build-api
-        run: |
-          docker buildx build --load \
-            --tag employee-api:test \
-            --file services/employee-api/Dockerfile \
-            services/employee-api
-        continue-on-error: true
-
-      - name: Validate Docker build — frontend
-        id: build-frontend
-        run: |
-          docker buildx build --load \
-            --tag frontend:test \
-            --file services/frontend/Dockerfile \
-            services/frontend
-        continue-on-error: true
-
-      - name: Validate Docker build — gateway
-        id: build-gateway
-        run: |
-          docker buildx build --load \
-            --tag gateway:test \
-            --file services/gateway/Dockerfile \
-            services/gateway
-        continue-on-error: true
-
-      - name: Print workflow summary
-        if: always()
-        run: |
-          echo "## Docker Validation" >> $GITHUB_STEP_SUMMARY
-          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Compose Config | ${{ steps.compose-validate.outcome }}" >> $GITHUB_STEP_SUMMARY
-          echo "| Build — employee-api | ${{ steps.build-api.outcome }}" >> $GITHUB_STEP_SUMMARY
-          echo "| Build — frontend | ${{ steps.build-frontend.outcome }}" >> $GITHUB_STEP_SUMMARY
-          echo "| Build — gateway | ${{ steps.build-gateway.outcome }}" >> $GITHUB_STEP_SUMMARY
-
-      - name: Fail on any Docker build failure
-        if: steps.build-api.outcome != 'success' || steps.build-frontend.outcome != 'success' || steps.build-gateway.outcome != 'success' || steps.compose-validate.outcome != 'success'
-        run: exit 1
-
-  # ---------------------------------------------------------------------------
-  # CI Summary — collected across all jobs
-  # ---------------------------------------------------------------------------
-  ci-summary:
-    name: CI Summary
-    runs-on: ubuntu-latest
-    needs: [terraform-checks, backend, frontend, docker-validation]
+  # Phase 6: Summary
+  summary:
+    name: Deployment Summary
+    needs: [deploy]
     if: always()
-
+    runs-on: ubuntu-latest
     steps:
-      - name: Check job outcomes
+      - name: Generate Summary
         run: |
-          echo "# CI Pipeline Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Terraform Checks | ${{ needs.terraform-checks.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Backend | ${{ needs.backend.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Frontend | ${{ needs.frontend.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Docker Validation | ${{ needs.docker-validation.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Git SHA:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Trigger:** ${{ github.event_name }} (${{ github.ref }})" >> $GITHUB_STEP_SUMMARY
-          echo "**Timestamp:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
-
-      - name: Fail if any critical job failed
-        if: >
-          needs.terraform-checks.result != 'success' ||
-          needs.backend.result != 'success' ||
-          needs.frontend.result != 'success' ||
-          needs.docker-validation.result != 'success'
-        run: |
-          echo "❌ One or more CI jobs failed"
-          exit 1
+          echo "## 🚀 Deployment Report" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** ${{ needs.deploy.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment:** ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}" >> $GITHUB_STEP_SUMMARY
