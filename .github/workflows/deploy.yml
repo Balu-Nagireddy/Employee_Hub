@@ -40,7 +40,7 @@ jobs:
         run: |
           echo "🔍 Discovering running EC2 instances with Tag Name=employee-hub-app-instance..."
           INSTANCE_ID=$(aws ec2 describe-instances \
-            --filters "Name=tag:Name,Value=employee-hub-app-instance" "Name=instance-state-name,Value=running" \
+            --filters "Name=tag:Name,Values=employee-hub-app-instance" "Name=instance-state-name,Values=running" \
             --query "Reservations[0].Instances[0].InstanceId" \
             --output text)
           
