@@ -43,7 +43,6 @@ def create_app() -> FastAPI:
     # Events
     @app.on_event("startup")
     async def startup():
-        Base.metadata.create_all(bind=engine)
         logger.info("application_started", environment=settings.APP_ENV, version=settings.APP_VERSION)
 
     @app.on_event("shutdown")
