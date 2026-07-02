@@ -37,6 +37,7 @@ jobs:
           working-directory: services/employee-api
 
       - name: Run Python Checks
+        working-directory: services/employee-api
         run: |
           pip install flake8 black
           python -m flake8 app --max-line-length=120 --exclude=__pycache__,alembic
@@ -50,6 +51,7 @@ jobs:
           working-directory: services/frontend
 
       - name: Run Frontend Checks
+        working-directory: services/frontend
         run: |
           npm install
           npx tsc --noEmit
