@@ -168,14 +168,28 @@ services:
   loki:
     image: grafana/loki:3.5.2
     container_name: employee-hub-loki
-    command: -config.file=/etc/loki/loki-config.yml
+
+    command:
+      - "-config.file=/etc/loki/loki-config.yml"
+
+    user: "0"
+
     volumes:
-      - ./monitoring/loki/loki-config.yml:/etc/loki/loki-config.yml
+      - ./monitoring/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
       - loki_data:/tmp/loki
+
     ports:
       - "3100:3100"
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3100/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
     networks:
       - employee-hub-network
+
     restart: unless-stopped
 
   promtail:
