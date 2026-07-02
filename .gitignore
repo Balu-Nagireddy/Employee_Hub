@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment
+.env
+.env.local
+*.env.local
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+test.db
+
+# Docker
+*.log
+docker-compose.override.yml
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/*.tfvars
+
+# Monitoring
+monitoring/grafana/grafana.db
+monitoring/prometheus/data/
+
+# Logs
+logs/
+*.log
+
+# Secrets
+**/secrets/
+**/secret*
+*.pem
+*.key
+terraform.tfvars
+
+*.tfstate
+
+*.tfstate.*
+
+.terraform/
+
+.terraform.lock.hcl

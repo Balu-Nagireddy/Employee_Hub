@@ -1,0 +1,145 @@
+{
+  "version": 3,
+  "name": "Employee Hub Gateway",
+  "port": 8080,
+  "cache_ttl": "60s",
+  "timeout": "30s",
+  "extra_config": {
+    "github_com/devopsfaith/krakend-cors": {
+      "allow_origins": ["*"],
+      "allow_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      "allow_headers": ["Content-Type", "Authorization", "X-Request-ID"],
+      "expose_headers": ["X-Request-ID"],
+      "max_age": "86400s"
+    },
+    "github_com/devopsfaith/krakend-metrics": {
+      "collection_time": "30s",
+      "listen_address": ":8090"
+    },
+    "github_com/devopsfaith/krakend-logging": {
+      "level": "INFO",
+      "prefix": "[KRAKEND]",
+      "syslog": false,
+      "stdout": true
+    }
+  },
+  "endpoints": [
+    {
+      "endpoint": "/employees",
+      "method": "GET",
+      "backend": [
+        {
+          "host": ["http://employee-api:8000"],
+          "url_pattern": "/employees",
+          "method": "GET",
+          "extra_config": {
+            "github_com/devopsfaith/krakend-circuit-breaker": {
+              "interval": 60,
+              "timeout": 10,
+              "max_errors": 3
+            }
+          }
+        }
+      ],
+      "output_encoding": "json",
+      "extra_config": {
+        "github_com/devopsfaith/krakend-cors": {
+          "allow_origins": ["*"]
+        }
+      }
+    },
+    {
+      "endpoint": "/employees/{id}",
+      "method": "GET",
+      "backend": [
+        {
+          "host": ["http://employee-api:8000"],
+          "url_pattern": "/employees/{id}",
+          "method": "GET"
+        }
+      ],
+      "output_encoding": "json"
+    },
+    {
+      "endpoint": "/employees",
+      "method": "POST",
+      "backend": [
+        {
+          "host": ["http://employee-api:8000"],
+          "url_pattern": "/employees",
+          "method": "POST"
+        }
+      ],
+      "output_encoding": "json"
+    },
+    {
+      "endpoint": "/employees/{id}",
+      "method": "PUT",
+      "backend": [
+        {
+          "host": ["http://employee-api:8000"],
+          "url_pattern": "/employees/{id}",
+          "method": "PUT"
+        }
+      ],
+      "output_encoding": "json"
+    },
+    {
+      "endpoint": "/employees/{id}",
+      "method": "DELETE",
+      "backend": [
+        {
+          "host": ["http://employee-api:8000"],
+          "url_pattern": "/employees/{id}",
+          "method": "DELETE"
+        }
+      ],
+      "output_encoding": "json"
+    },
+    {
+      "endpoint": "/health",
+      "method": "GET",
+      "backend": [
+        {
+          "host": ["http://employee-api:8000"],
+          "url_pattern": "/health",
+          "method": "GET"
+        }
+      ],
+      "output_encoding": "json"
+    },
+    {
+      "endpoint": "/ready",
+      "method": "GET",
+      "backend": [
+        {
+          "host": ["http://employee-api:8000"],
+          "url_pattern": "/ready",
+          "method": "GET"
+        }
+      ],
+      "output_encoding": "json"
+    },
+    {
+      "endpoint": "/live",
+      "method": "GET",
+      "backend": [
+        {
+          "host": ["http://employee-api:8000"],
+          "url_pattern": "/live",
+          "method": "GET"
+        }
+      ],
+      "output_encoding": "json"
+    }
+  ],
+  "service_discovery": {
+    "static": {
+      "strategy": "static"
+    }
+  },
+  "rate_limit": {
+    "max": 100,
+    "every": "60s"
+  }
+}
