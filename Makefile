@@ -49,7 +49,8 @@ frontend-build: ## Build frontend for production
 health: ## Check health of all services
 	@bash deployments/scripts/health-check.sh
 
-deploy: ## Deploy to production
-	@bash deployments/scripts/deploy.sh production
+# Deployment is handled exclusively through GitHub Actions workflows.
+# See .github/workflows/deploy.yml for the automated deployment pipeline.
+# Manual SSH deployment is not supported.
 
-.PHONY: help up down build restart logs ps clean seed test test-api lint format frontend-build health deploy
+.PHONY: help up down build restart logs ps clean seed test test-api lint format frontend-build health

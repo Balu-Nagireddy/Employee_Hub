@@ -1,9 +1,9 @@
 # Production Docker Compose file.
-# Uses RDS PostgreSQL from Terraform and pre-built images from GHCR.
+# Uses RDS PostgreSQL from Terraform and pre-built images from Amazon ECR.
 #
 # Required environment variables:
 #   IMAGE_TAG
-#   GITHUB_REPOSITORY
+#   REGISTRY (ECR registry URL: <account>.dkr.ecr.<region>.amazonaws.com)
 #   DB_HOST
 #   DB_PORT
 #   DB_USER
@@ -11,7 +11,6 @@
 #   DB_NAME
 #
 # Optional environment variables:
-#   REGISTRY
 #   GRAFANA_USER
 #   GRAFANA_PASSWORD
 
@@ -30,7 +29,7 @@ volumes:
 
 services:
   employee-api:
-    image: ${REGISTRY:-ghcr.io}/${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}/employee-api:${IMAGE_TAG:-latest}
+    image: ${REGISTRY:?REGISTRY is required}/employee-api:${IMAGE_TAG:-latest}
     container_name: employee-hub-api
     environment:
       APP_ENV: production
@@ -53,7 +52,7 @@ services:
     restart: always
 
   gateway:
-    image: ${REGISTRY:-ghcr.io}/${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}/gateway:${IMAGE_TAG:-latest}
+    image: ${REGISTRY:?REGISTRY is required}/gateway:${IMAGE_TAG:-latest}
     container_name: employee-hub-gateway
     ports:
       - "8080:8080"
@@ -72,7 +71,7 @@ services:
     restart: always
 
   frontend:
-    image: ${REGISTRY:-ghcr.io}/${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}/frontend:${IMAGE_TAG:-latest}
+    image: ${REGISTRY:?REGISTRY is required}/frontend:${IMAGE_TAG:-latest}
     container_name: employee-hub-frontend
     ports:
       - "80:80"

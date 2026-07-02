@@ -1,0 +1,303 @@
+# =============================================================================
+# Terraform — Infrastructure as Code Workflow
+#
+# Triggered by:
+#   - Pull request to main (plan only)
+#   - Push to github-actions (fmt + validate)
+#   - Manual trigger (workflow_dispatch) with apply option
+#
+# Supports:
+#   - terraform fmt (format check)
+#   - terraform validate (configuration validation)
+#   - terraform plan (with PR comment)
+#   - terraform apply (manual via workflow_dispatch)
+#
+# IMPORTANT: Apply requires explicit confirmation and operates on
+# the shared remote state. Use with caution.
+# =============================================================================
+
+name: Terraform
+
+on:
+  push:
+    branches: [github-actions]
+    paths:
+      - 'terraform/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Terraform action to execute'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+        default: plan
+      confirm-destroy:
+        description: 'Confirm destroy (if plan includes resource deletion)'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PROJECT_NAME: employee-hub
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+  TF_VERSION: 1.11.3
+  TF_DIR: terraform
+
+# =============================================================================
+# Jobs
+# =============================================================================
+jobs:
+  # ---------------------------------------------------------------------------
+  # Terraform Format & Validate
+  # ---------------------------------------------------------------------------
+  fmt-validate:
+    name: Format & Validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform ${{ env.TF_VERSION }}
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Cache Terraform providers
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TF_DIR }}/.terraform
+          key: tf-${{ runner.os }}-${{ hashFiles(env.TF_DIR, '.terraform.lock.hcl') }}
+          restore-keys: |
+            tf-${{ runner.os }}-
+
+      - name: Terraform Format
+        id: fmt
+        run: terraform fmt -check -recursive
+        working-directory: ${{ env.TF_DIR }}
+        continue-on-error: true
+
+      - name: Terraform Init
+        id: init
+        run: terraform init -backend=false
+        working-directory: ${{ env.TF_DIR }}
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+        working-directory: ${{ env.TF_DIR }}
+
+      - name: Print results
+        if: always()
+        run: |
+          echo "## Terraform Format & Validate" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Format | ${{ steps.fmt.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Init | ${{ steps.init.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Validate | ${{ steps.validate.outcome }} |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Fail on format violation
+        if: steps.fmt.outcome != 'success'
+        run: |
+          echo "❌ Terraform format check failed — run 'terraform fmt' locally"
+          exit 1
+
+  # ---------------------------------------------------------------------------
+  # Terraform Plan (PR or manual)
+  # ---------------------------------------------------------------------------
+  plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    needs: [fmt-validate]
+    if: >
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' && inputs.action == 'plan')
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: AWS Authentication
+        uses: ./.github/actions/aws-auth
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Setup Terraform ${{ env.TF_VERSION }}
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Cache Terraform providers
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TF_DIR }}/.terraform
+          key: tf-${{ runner.os }}-${{ hashFiles(env.TF_DIR, '.terraform.lock.hcl') }}
+          restore-keys: |
+            tf-${{ runner.os }}-
+
+      - name: Terraform Init (full — with backend)
+        id: init
+        run: terraform init -no-color
+        working-directory: ${{ env.TF_DIR }}
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan \
+            -no-color \
+            -var="db_username=${{ secrets.TF_VAR_DB_USERNAME }}" \
+            -var="db_password=${{ secrets.TF_VAR_DB_PASSWORD }}" \
+            -out=tfplan.binary \
+            2>&1
+        working-directory: ${{ env.TF_DIR }}
+        continue-on-error: true
+
+      - name: Show plan as text
+        id: show
+        if: steps.plan.outcome == 'success'
+        run: terraform show -no-color tfplan.binary > tfplan.txt 2>&1
+        working-directory: ${{ env.TF_DIR }}
+
+      - name: Upload plan artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: ${{ env.TF_DIR }}/tfplan.txt
+          retention-days: 30
+
+      - name: Post plan to PR
+        if: github.event_name == 'pull_request' && steps.plan.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const planOutput = fs.readFileSync('${{ env.TF_DIR }}/tfplan.txt', 'utf8').substring(0, 65000);
+            const body = `## Terraform Plan\n\`\`\`diff\n${planOutput}\n\`\`\``;
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Print plan summary
+        if: always()
+        run: |
+          echo "## Terraform Plan" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Outcome | ${{ steps.plan.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Timestamp | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Fail on plan error
+        if: steps.plan.outcome != 'success'
+        run: |
+          echo "❌ Terraform plan failed"
+          exit 1
+
+  # ---------------------------------------------------------------------------
+  # Terraform Apply (manual only)
+  # ---------------------------------------------------------------------------
+  apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+    needs: [fmt-validate]
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'apply'
+    timeout-minutes: 30
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: AWS Authentication
+        uses: ./.github/actions/aws-auth
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Setup Terraform ${{ env.TF_VERSION }}
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Cache Terraform providers
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TF_DIR }}/.terraform
+          key: tf-${{ runner.os }}-${{ hashFiles(env.TF_DIR, '.terraform.lock.hcl') }}
+          restore-keys: |
+            tf-${{ runner.os }}-
+
+      - name: Terraform Init (full — with backend)
+        id: init
+        run: terraform init -no-color
+        working-directory: ${{ env.TF_DIR }}
+
+      - name: Terraform Plan (before apply)
+        id: plan
+        run: |
+          terraform plan \
+            -no-color \
+            -var="db_username=${{ secrets.TF_VAR_DB_USERNAME }}" \
+            -var="db_password=${{ secrets.TF_VAR_DB_PASSWORD }}" \
+            -out=tfplan.binary \
+            2>&1
+        working-directory: ${{ env.TF_DIR }}
+
+      - name: Show plan
+        run: terraform show -no-color tfplan.binary
+        working-directory: ${{ env.TF_DIR }}
+
+      - name: Terraform Apply
+        id: apply
+        run: |
+          terraform apply \
+            -no-color \
+            -auto-approve \
+            tfplan.binary \
+            2>&1
+        working-directory: ${{ env.TF_DIR }}
+
+      - name: Print apply summary
+        if: always()
+        run: |
+          echo "## Terraform Apply" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Outcome | ${{ steps.apply.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Workspace | ${{ env.TF_DIR }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Timestamp | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Fail on apply error
+        if: steps.apply.outcome != 'success'
+        run: |
+          echo "❌ Terraform apply failed"
+          exit 1

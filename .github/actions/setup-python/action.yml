@@ -1,0 +1,57 @@
+# =============================================================================
+# Setup Python Composite Action
+#
+# Sets up Python, caches pip dependencies, and installs project requirements.
+# =============================================================================
+
+name: 'Setup Python'
+description: 'Sets up Python with pip caching and dependency installation'
+
+inputs:
+  python-version:
+    description: 'Python version to use'
+    required: false
+    default: '3.12'
+  working-directory:
+    description: 'Directory containing requirements.txt'
+    required: false
+    default: 'services/employee-api'
+  cache-key-prefix:
+    description: 'Prefix for cache key to avoid collisions'
+    required: false
+    default: 'pip'
+
+outputs:
+  cache-hit:
+    description: 'Whether pip cache was restored'
+    value: ${{ steps.pip-cache.outputs.cache-hit }}
+
+runs:
+  using: 'composite'
+
+  steps:
+    - name: Set up Python ${{ inputs.python-version }}
+      id: setup-python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Cache pip dependencies
+      id: pip-cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.pythonLocation }}/lib/python${{ inputs.python-version }}/site-packages
+        key: ${{ inputs.cache-key-prefix }}-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles(format('{0}/requirements.txt', inputs.working-directory)) }}
+        restore-keys: |
+          ${{ inputs.cache-key-prefix }}-${{ runner.os }}-${{ env.pythonLocation }}-
+          ${{ inputs.cache-key-prefix }}-${{ runner.os }}-
+
+    - name: Install Python dependencies
+      shell: bash
+      run: |
+        if [ "${{ steps.pip-cache.outputs.cache-hit }}" != "true" ]; then
+          pip install --upgrade pip
+          pip install -r "${{ inputs.working-directory }}/requirements.txt"
+        fi
+      env:
+        PIP_PROGRESS_BAR: 'off'

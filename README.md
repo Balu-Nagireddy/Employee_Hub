@@ -49,6 +49,22 @@ See [Terraform documentation](terraform/) for full infrastructure details.
 
 ```
 Employee_Hub/
+├── .github/
+│   ├── workflows/             # Modular GitHub Actions pipeline
+│   │   ├── ci.yml             # Continuous Integration
+│   │   ├── security.yml       # Security scanning (Trivy + SARIF)
+│   │   ├── docker-build.yml   # Amazon ECR build & push
+│   │   ├── deploy.yml         # SSM-based deployment to EC2
+│   │   ├── rollback.yml       # Automated rollback
+│   │   └── terraform.yml      # Terraform IaC workflow
+│   ├── actions/               # Reusable composite actions
+│   │   ├── setup-python/      # Python setup + caching
+│   │   ├── setup-node/        # Node.js setup + caching
+│   │   └── aws-auth/          # AWS authentication
+│   └── scripts/               # Deployment scripts (SSM)
+│       ├── deploy.sh
+│       ├── rollback.sh
+│       └── health-check.sh
 ├── services/
 │   ├── employee-api/          # Python FastAPI backend
 │   │   ├── app/
@@ -76,11 +92,15 @@ Employee_Hub/
 │   │   └── dashboards/        # Pre-built dashboards
 │   ├── loki/
 │   └── promtail/
-├── deployments/               # Production deployment configs
-├── .github/workflows/         # GitHub Actions CI/CD
+├── deployments/               # Production Docker Compose & scripts
 ├── common/                    # Shared configs, SQL, Postman
 ├── docs/
-│   └── architecture.md        # Architecture + ADRs
+│   ├── architecture.md        # Architecture + ADRs
+│   ├── ci-cd.md               # CI/CD pipeline documentation
+│   ├── deployment.md          # Deployment guide
+│   ├── github-actions.md      # Workflow design docs
+│   ├── rollback.md            # Rollback process
+│   └── legacy/                # Archived original workflow
 ├── docker-compose.yml         # Development environment
 ├── Makefile                   # Convenience commands
 └── README.md                  # This file
@@ -263,26 +283,74 @@ terraform output ssh_command
 
 ## CI/CD Pipeline
 
-The GitHub Actions workflow (`.github/workflows/ci-cd.yml`) runs:
+The project uses a **modular GitHub Actions** architecture with 6 independent workflows. Deployment happens exclusively through GitHub Actions — no manual SSH is required.
 
-1. **Test & Lint** — Python tests (pytest), linting (flake8, black), TypeScript check
-2. **Security Scan** — Trivy vulnerability scanning (CRITICAL/HIGH)
-3. **Docker Build & Push** — Build images → push to GitHub Container Registry
-4. **Deploy to EC2** — SSH via SSM → `docker compose pull && docker compose up -d`
-5. **Health Check** — Verify KrakenD `/health` endpoint
+### Workflow Dependency Graph
+
+```
+Developer
+    │
+    ▼
+github-actions branch
+    │
+    ├── Push ──▶ CI (ci.yml)
+    │                   │
+    │                   ▼
+    │              Security (security.yml)
+    │
+    ├── PR to main ──▶ CI (ci.yml)
+    │
+    └── Merge to main ──▶ Docker Build (docker-build.yml) ──▶ Deploy (deploy.yml)
+                                                                       │
+                                                                  ┌─────┴─────┐
+                                                              ✅ Pass    ❌ Fail
+                                                                              │
+                                                                         Rollback (rollback.yml)
+```
+
+| Workflow | File | Description |
+|----------|------|-------------|
+| **CI** | `ci.yml` | Terraform fmt/validate, Python lint/tests, TypeScript check/build, Docker validation — runs in parallel |
+| **Security** | `security.yml` | Trivy filesystem, Docker image, dependency, secret, and license scans with SARIF upload to GitHub Security tab |
+| **Docker Build** | `docker-build.yml` | Build & push images to **Amazon ECR** with tags: `latest`, git SHA, branch, semver |
+| **Deploy** | `deploy.yml` | SSM Run Command deployment to EC2 — uploads configs, pulls images, restarts stack, verifies health |
+| **Rollback** | `rollback.yml` | Automatic rollback to previous image version on health check failure |
+| **Terraform** | `terraform.yml` | IaC workflow: `fmt` → `validate` → `plan` → manual `apply` |
 
 ### Required Secrets
 
-| Secret | Description |
-|--------|-------------|
-| `AWS_ACCESS_KEY_ID` | AWS access key for SSM commands |
-| `AWS_SECRET_ACCESS_KEY` | AWS secret key |
+| Secret | Description | Used By |
+|--------|-------------|---------|
+| `AWS_ACCESS_KEY_ID` | AWS access key | All workflows |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key | All workflows |
+| `DB_HOST` | RDS endpoint | Deploy, Rollback |
+| `DB_USER` | RDS master username | Deploy, Rollback |
+| `DB_PASSWORD` | RDS master password | Deploy, Rollback |
+| `TF_VAR_DB_USERNAME` | Terraform DB username | Terraform |
+| `TF_VAR_DB_PASSWORD` | Terraform DB password | Terraform |
 
 ### Required Variables
 
-| Variable | Description |
-|----------|-------------|
-| `AWS_REGION` | AWS region (default: `ap-south-1`) |
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `AWS_REGION` | AWS region | `ap-south-1` |
+| `AWS_ACCOUNT_ID` | AWS account ID (for ECR) | (required) |
+
+### Key Features
+
+- **No SSH** — All deployment via AWS SSM Run Command
+- **Amazon ECR** — Container registry (not GHCR)
+- **Concurrency** — Stale runs cancelled automatically
+- **Caching** — pip, npm, Terraform providers, Docker layers
+- **Logging** — Timestamps, duration, Git SHA, workflow summaries
+- **Auto-rollback** — Deploy failures trigger automatic rollback
+- **SARIF** — Security findings uploaded to GitHub Security tab
+
+For detailed documentation, see:
+- [CI/CD Pipeline](docs/ci-cd.md)
+- [GitHub Actions Design](docs/github-actions.md)
+- [Deployment Guide](docs/deployment.md)
+- [Rollback Process](docs/rollback.md)
 
 ## Monitoring & Observability
 
