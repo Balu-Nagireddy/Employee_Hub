@@ -3,7 +3,7 @@ import uuid
 import structlog
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
+
 from app.monitoring.metrics import http_requests_total, http_errors_total, http_request_duration_seconds
 
 

@@ -8,7 +8,10 @@ class EmployeeRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def get_all(self, skip: int = 0, limit: int = 100, department: Optional[str] = None, status: Optional[str] = None) -> list[Employee]:
+    def get_all(
+        self, skip: int = 0, limit: int = 100,
+        department: Optional[str] = None, status: Optional[str] = None,
+    ) -> list[Employee]:
         query = self.db.query(Employee)
         if department:
             query = query.filter(Employee.department == department)

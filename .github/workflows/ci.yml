@@ -129,7 +129,7 @@ jobs:
         run: pip install flake8 black
 
       - name: Python Lint (flake8)
-        run: flake8 app --max-line-length=120 --exclude=__pycache__,alembic --format='::warning file={file},line={line},col={col},title={code}::{text}'
+        run: flake8 app --config=.flake8 --max-line-length=120 --exclude=__pycache__,alembic --format='::warning file={file},line={line},col={col},title={code}::{text}'
 
       - name: Python Format Check (black)
         run: black --check app --line-length=120
@@ -231,7 +231,6 @@ jobs:
         run: docker compose -f deployments/docker/docker-compose.prod.yml config > /dev/null
         env:
           IMAGE_TAG: ${{ env.IMAGE_TAG }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
           REGISTRY: 000000000000.dkr.ecr.us-east-1.amazonaws.com
           DB_HOST: localhost
           DB_PORT: 5432

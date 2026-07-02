@@ -3,7 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from app.database import get_db, engine
+from app.database import get_db
 from app.config import settings
 
 logger = structlog.get_logger()

@@ -1,0 +1,10 @@
+[flake8]
+max-line-length = 120
+exclude = __pycache__,alembic,.venv,venv,.git
+extend-ignore =
+    # B008: Do not perform function calls in argument defaults
+    # FastAPI uses Depends() and Query() in function signatures intentionally.
+    B008,
+    # A003: Class attribute shadows Python builtin
+    # SQLAlchemy/Pydantic models commonly use 'id' as a field name.
+    A003,
