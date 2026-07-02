@@ -29,7 +29,7 @@ volumes:
 
 services:
   employee-api:
-    image: ${REGISTRY:?REGISTRY is required}/employee-api:${IMAGE_TAG:-latest}
+    image: ${REGISTRY:?REGISTRY is required}/api:${IMAGE_TAG:-latest}
     container_name: employee-hub-api
     environment:
       APP_ENV: production
