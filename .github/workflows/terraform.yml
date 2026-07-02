@@ -25,22 +25,40 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ vars.AWS_REGION || 'ap-south-1' }}
 
-      - name: Terraform Init
-        run: terraform init
+      - name: Terraform Format Check
         working-directory: terraform
+        run: terraform fmt -check -recursive
 
-      - name: Terraform Format & Validate
-        run: |
-          terraform fmt -check
-          terraform validate
+      - name: Terraform Init
         working-directory: terraform
+        run: |
+          terraform init \
+            -input=false \
+            -upgrade
+
+      - name: Terraform Validate
+        working-directory: terraform
+        run: terraform validate
 
       - name: Terraform Plan
         id: plan
-        run: terraform plan -out=tfplan -no-color
         working-directory: terraform
+        run: |
+          terraform plan \
+            -input=false \
+            -out=tfplan \
+            -no-color
+
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: terraform/tfplan
+          retention-days: 5
 
       - name: Terraform Apply
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
-        run: terraform apply -auto-approve tfplan
+        if: |
+          github.ref == 'refs/heads/github-actions' ||
+          github.ref == 'refs/heads/main'
         working-directory: terraform
+        run: terraform apply -auto-approve tfplan

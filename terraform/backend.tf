@@ -1,13 +1,12 @@
 # -----------------------------------------------------------------------
-# Terraform Backend Configuration (S3 + DynamoDB)
+# Terraform Backend Configuration (S3)
 # -----------------------------------------------------------------------
 #
 # Bootstrapping Instructions:
 #
 #   1. Apply once with local state to create the backend resources:
 #        terraform init
-#        terraform apply -target=aws_s3_bucket.terraform_state \
-#                        -target=aws_dynamodb_table.terraform_lock
+#        terraform apply -target=aws_s3_bucket.terraform_state
 #
 #   2. Uncomment the backend block below and run:
 #        terraform init -migrate-state
@@ -25,7 +24,6 @@ terraform {
     region       = "ap-south-1"
     encrypt      = true
     use_lockfile = true
-    dynamodb_table = "employee-hub-terraform-lock"
   }
 
   required_providers {
