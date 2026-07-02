@@ -10,8 +10,12 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -22,13 +26,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # github.repository is mixed-case (e.g. "Balu-Nagireddy/Employee_Hub").
+      # GHCR requires all-lowercase. We write to GITHUB_OUTPUT (not GITHUB_ENV)
+      # so ${{ steps.repo.outputs.name }} resolves correctly inside with: fields.
+      - name: Lowercase repository name
+        id: repo
+        run: echo "name=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Build and Push
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}/api:${{ inputs.image_tag }}
-            ghcr.io/${{ github.repository }}/frontend:${{ inputs.image_tag }}
+            ghcr.io/${{ steps.repo.outputs.name }}/api:${{ inputs.image_tag }}
+            ghcr.io/${{ steps.repo.outputs.name }}/frontend:${{ inputs.image_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
