@@ -26,20 +26,36 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # github.repository is mixed-case (e.g. "Balu-Nagireddy/Employee_Hub").
-      # GHCR requires all-lowercase. We write to GITHUB_OUTPUT (not GITHUB_ENV)
-      # so ${{ steps.repo.outputs.name }} resolves correctly inside with: fields.
       - name: Lowercase repository name
         id: repo
         run: echo "name=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
-      - name: Build and Push
+      - name: Build and Push API
         uses: docker/build-push-action@v5
         with:
-          context: .
+          context: services/employee-api
+          file: services/employee-api/Dockerfile
           push: true
-          tags: |
-            ghcr.io/${{ steps.repo.outputs.name }}/api:${{ inputs.image_tag }}
-            ghcr.io/${{ steps.repo.outputs.name }}/frontend:${{ inputs.image_tag }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ghcr.io/${{ steps.repo.outputs.name }}/api:${{ inputs.image_tag }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
+
+      - name: Build and Push Frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: services/frontend
+          file: services/frontend/Dockerfile
+          push: true
+          tags: ghcr.io/${{ steps.repo.outputs.name }}/frontend:${{ inputs.image_tag }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
+
+      - name: Build and Push Gateway
+        uses: docker/build-push-action@v5
+        with:
+          context: services/gateway
+          file: services/gateway/Dockerfile
+          push: true
+          tags: ghcr.io/${{ steps.repo.outputs.name }}/gateway:${{ inputs.image_tag }}
+          cache-from: type=gha,scope=gateway
+          cache-to: type=gha,scope=gateway,mode=max
