@@ -119,11 +119,14 @@ jobs:
           INSTANCE_ID="${{ steps.discover.outputs.instance_id }}"
           echo "🔍 Capturing currently running image tag for rollback fallback..."
           
+          # Use jq to construct parameters to prevent shell escaping/nested quote issues
+          CMD_JSON=$(jq -n --arg cmd 'if [ -f /opt/employee-hub/.env ]; then grep ^IMAGE_TAG= /opt/employee-hub/.env | cut -d= -f2; else echo ""; fi' '{"commands": [$cmd]}')
+          
           # Retrieve the previous IMAGE_TAG if the .env file exists on the host
           CMD_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --parameters 'commands=["if [ -f /opt/employee-hub/.env ]; then grep ^IMAGE_TAG= /opt/employee-hub/.env | cut -d= -f2; else echo \"\"; fi"]' \
+            --parameters "$CMD_JSON" \
             --query "Command.CommandId" \
             --output text)
           
@@ -208,11 +211,14 @@ jobs:
           DEPLOY_SCRIPT="${DEPLOY_SCRIPT//GHCR_TOKEN_PLACEHOLDER/${{ secrets.GITHUB_TOKEN }}}"
           DEPLOY_SCRIPT="${DEPLOY_SCRIPT//GHCR_ACTOR_PLACEHOLDER/${{ github.actor }}}"
           
+          # Use jq to format parameters safely and avoid CLI command validation errors with nested quotes
+          CMD_JSON=$(jq -n --arg cmd "$DEPLOY_SCRIPT" '{"commands": [$cmd]}')
+          
           # Send deployment command via SSM
           CMD_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --parameters commands=["$DEPLOY_SCRIPT"] \
+            --parameters "$CMD_JSON" \
             --query "Command.CommandId" \
             --output text)
             
@@ -282,11 +288,14 @@ jobs:
           EOF
           )
           
+          # Safe JSON parameters formatting
+          CMD_JSON=$(jq -n --arg cmd "$VERIFY_SCRIPT" '{"commands": [$cmd]}')
+          
           # Send verification command via SSM
           CMD_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --parameters commands=["$VERIFY_SCRIPT"] \
+            --parameters "$CMD_JSON" \
             --query "Command.CommandId" \
             --output text)
             
@@ -336,10 +345,13 @@ jobs:
           EOF
           )
           
+          # Safe parameters formatting
+          CMD_JSON=$(jq -n --arg cmd "$DIAGNOSTIC_SCRIPT" '{"commands": [$cmd]}')
+          
           CMD_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --parameters commands=["$DIAGNOSTIC_SCRIPT"] \
+            --parameters "$CMD_JSON" \
             --query "Command.CommandId" \
             --output text)
             
@@ -377,10 +389,12 @@ jobs:
             )
             ROLLBACK_SCRIPT="${ROLLBACK_SCRIPT//PREV_TAG_PLACEHOLDER/$PREV_TAG}"
             
+            RB_CMD_JSON=$(jq -n --arg cmd "$ROLLBACK_SCRIPT" '{"commands": [$cmd]}')
+            
             RB_CMD_ID=$(aws ssm send-command \
               --instance-ids "$INSTANCE_ID" \
               --document-name "AWS-RunShellScript" \
-              --parameters commands=["$ROLLBACK_SCRIPT"] \
+              --parameters "$RB_CMD_JSON" \
               --query "Command.CommandId" \
               --output text)
               
