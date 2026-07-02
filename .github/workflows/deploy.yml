@@ -324,6 +324,12 @@ jobs:
           INSTANCE_ID="${{ steps.discover.outputs.instance_id }}"
           PREV_TAG="${{ steps.pre_deploy.outputs.previous_tag }}"
           
+          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ] || [ "$INSTANCE_ID" = "[]" ]; then
+            echo "⚠️ Diagnostics/Rollback skipped because target EC2 Instance ID is empty or invalid."
+            echo "The failure likely occurred during early stages (Checkout, AWS Auth, or Instance Discovery)."
+            exit 0
+          fi
+          
           echo "⚠️ Deployment or verification failed. Starting diagnostics..."
           
           DIAGNOSTIC_SCRIPT=$(cat << 'EOF'
@@ -424,6 +430,7 @@ jobs:
           name: deployment-diagnostic-logs
           path: diagnostic-report.log
           retention-days: 7
+          if-no-files-found: ignore
 
       # -----------------------------------------------------------------------
       # STEP 9: Build Deployment Job Summary
