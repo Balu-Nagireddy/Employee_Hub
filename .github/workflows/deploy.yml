@@ -253,11 +253,14 @@ jobs:
           
           VERIFY_SCRIPT=$(cat << 'EOF'
           set -eo pipefail
+          STACK_DIR="/opt/employee-hub"
+          cd "$STACK_DIR"
+          
           echo "--- docker ps ---"
           docker ps
           
           echo "--- docker compose ps ---"
-          docker compose -f /opt/employee-hub/deployments/docker/docker-compose.prod.yml ps
+          docker compose -f deployments/docker/docker-compose.prod.yml --env-file .env ps
           
           echo "--- Checking endpoint accessibility ---"
           # 1. Check Frontend (Nginx container on port 80)
@@ -336,16 +339,19 @@ jobs:
           echo "========================================="
           echo "          DIAGNOSTIC DUMP"
           echo "========================================="
+          STACK_DIR="/opt/employee-hub"
+          cd "$STACK_DIR" || true
+          
           echo "--- Docker Process List ---"
           docker ps -a
           echo "--- Docker Compose Container Statuses ---"
-          docker compose -f /opt/employee-hub/deployments/docker/docker-compose.prod.yml ps -a || true
+          docker compose -f deployments/docker/docker-compose.prod.yml --env-file .env ps -a || true
           echo "--- Docker Daemon Status (systemd) ---"
           systemctl status docker --no-pager || true
           echo "--- SSM Agent Status (systemd) ---"
           systemctl status amazon-ssm-agent --no-pager || true
           echo "--- Application Stack logs (docker compose logs) ---"
-          docker compose -f /opt/employee-hub/deployments/docker/docker-compose.prod.yml logs --tail=100 || true
+          docker compose -f deployments/docker/docker-compose.prod.yml --env-file .env logs --tail=100 || true
           echo "--- System Log Excerpt (journalctl) ---"
           journalctl -u docker.service -n 50 --no-pager || true
           EOF
