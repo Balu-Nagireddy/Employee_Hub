@@ -3,7 +3,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from app.config import settings
-from app.database import engine, Base
 from app.api.routes.employees import router as employees_router
 from app.api.routes.health import router as health_router
 from app.middleware.logging_middleware import LoggingMiddleware

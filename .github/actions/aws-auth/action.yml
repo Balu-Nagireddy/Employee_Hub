@@ -3,8 +3,8 @@
 #
 # Configures AWS credentials and sets up the AWS CLI for subsequent steps.
 #
-# IMPORTANT: Composite actions cannot access ${{ secrets.* }} directly.
-# Callers must pass secrets as input values (e.g. ${{ secrets.AWS_ACCESS_KEY_ID }}).
+# IMPORTANT: Composite actions cannot access secrets directly.
+# Callers must pass secrets as input values (e.g. AWS_ACCESS_KEY_ID).
 # =============================================================================
 
 name: 'AWS Authentication'
@@ -16,10 +16,10 @@ inputs:
     required: false
     default: 'ap-south-1'
   aws-access-key-id:
-    description: 'AWS Access Key ID (pass ${{ secrets.AWS_ACCESS_KEY_ID }})'
+    description: 'AWS Access Key ID'
     required: true
   aws-secret-access-key:
-    description: 'AWS Secret Access Key (pass ${{ secrets.AWS_SECRET_ACCESS_KEY }})'
+    description: 'AWS Secret Access Key'
     required: true
 
 runs:
