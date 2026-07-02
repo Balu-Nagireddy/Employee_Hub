@@ -184,9 +184,9 @@ jobs:
           echo "✏️ Updating environment variables in .env..."
           touch .env
           sed -i '/^IMAGE_TAG=/d' .env
-          sed -i '/^IMAGE_PREFIX=/d' .env
+          sed -i '/^REGISTRY=/d' .env
           echo "IMAGE_TAG=IMAGE_TAG_PLACEHOLDER" >> .env
-          echo "IMAGE_PREFIX=IMAGE_PREFIX_PLACEHOLDER" >> .env
+          echo "REGISTRY=IMAGE_PREFIX_PLACEHOLDER" >> .env
           
           echo "🔑 Authenticating Docker to GHCR..."
           echo "GHCR_TOKEN_PLACEHOLDER" | docker login ghcr.io -u "GHCR_ACTOR_PLACEHOLDER" --password-stdin
@@ -391,7 +391,7 @@ jobs:
             
             echo "🔄 Starting rollback compose deployment..."
             docker compose -f deployments/docker/docker-compose.prod.yml --env-file .env up -d
-            EOF
+          EOF
             )
             ROLLBACK_SCRIPT="${ROLLBACK_SCRIPT//PREV_TAG_PLACEHOLDER/$PREV_TAG}"
             
