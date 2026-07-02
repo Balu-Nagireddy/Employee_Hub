@@ -247,11 +247,17 @@ resource "aws_iam_role" "ec2" {
   })
 }
 
-# Limited to SSM Session Manager for secure access without SSH keys.
-# CloudWatch Agent policy is intentionally excluded — logging uses Promtail → Loki → Grafana.
+# SSM Session Manager for secure access without SSH keys.
 resource "aws_iam_role_policy_attachment" "ec2_ssm" {
   role       = aws_iam_role.ec2.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+# ECR read access for pulling Docker images during deployment.
+# The deploy script runs aws ecr get-login-password and docker compose pull on EC2.
+resource "aws_iam_role_policy_attachment" "ec2_ecr_read" {
+  role       = aws_iam_role.ec2.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
 resource "aws_iam_instance_profile" "ec2" {
