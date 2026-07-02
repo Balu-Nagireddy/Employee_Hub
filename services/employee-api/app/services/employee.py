@@ -13,8 +13,7 @@ class EmployeeService:
         self.repo = repo
 
     def list_employees(
-        self, skip: int = 0, limit: int = 100,
-        department: Optional[str] = None, status: Optional[str] = None
+        self, skip: int = 0, limit: int = 100, department: Optional[str] = None, status: Optional[str] = None
     ) -> tuple[list[Employee], int]:
         employees = self.repo.get_all(skip, limit, department, status)
         total = self.repo.count(department, status)

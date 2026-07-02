@@ -197,6 +197,8 @@ jobs:
           SCRIPT_CONTENT=$(cat /tmp/remote-deploy.sh)
 
           # Build SSM parameters
+          # NOTE: AWS-RunShellScript does NOT support "environmentVariables".
+          # Instead, we prepend inline export commands before the main script.
           SSM_PARAMETERS=$(jq -nc \
             --arg script "${SCRIPT_CONTENT}" \
             --arg tag "${IMAGE_TAG}" \
@@ -210,20 +212,20 @@ jobs:
             --arg db_password "${{ secrets.DB_PASSWORD }}" \
             --arg db_name "employee_db" \
             '{
-              "commands": [$script],
-              "workingDirectory": ["/tmp"],
-              "environmentVariables": [
-                {"key": "IMAGE_TAG", "value": $tag},
-                {"key": "REGISTRY", "value": $registry},
-                {"key": "AWS_DEFAULT_REGION", "value": $region},
-                {"key": "STACK_DIR", "value": $stack},
-                {"key": "COMPOSE_FILE", "value": $compose},
-                {"key": "DB_HOST", "value": $db_host},
-                {"key": "DB_PORT", "value": $db_port},
-                {"key": "DB_USER", "value": $db_user},
-                {"key": "DB_PASSWORD", "value": $db_password},
-                {"key": "DB_NAME", "value": $db_name}
+              "commands": [
+                "export IMAGE_TAG=\($tag)",
+                "export REGISTRY=\($registry)",
+                "export AWS_DEFAULT_REGION=\($region)",
+                "export STACK_DIR=\($stack)",
+                "export COMPOSE_FILE=\($compose)",
+                "export DB_HOST=\($db_host)",
+                "export DB_PORT=\($db_port)",
+                "export DB_USER=\($db_user)",
+                "export DB_PASSWORD=\($db_password)",
+                "export DB_NAME=\($db_name)",
+                $script
               ],
+              "workingDirectory": ["/tmp"],
               "executionTimeout": ["600"]
             }')
 

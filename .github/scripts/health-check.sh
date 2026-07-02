@@ -48,7 +48,7 @@ failed=0
 
 echo ""
 echo "--- Application Services ---"
-check_service "Employee API"    "http://localhost:8000/health"  "200" || ((failed++))
+check_service "Employee API (via KrakenD)"    "http://localhost:8080/health"  "200" || ((failed++))
 check_service "KrakenD Gateway" "http://localhost:8080/health"  "200" || ((failed++))
 check_service "Frontend"        "http://localhost:80/"          "200" || ((failed++))
 

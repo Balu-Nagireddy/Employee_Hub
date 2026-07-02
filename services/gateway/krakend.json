@@ -27,6 +27,12 @@
     {
       "endpoint": "/employees",
       "method": "GET",
+      "input_query_strings": [
+        "limit",
+        "skip",
+        "department",
+        "status"
+      ],
       "backend": [
         {
           "host": ["http://employee-api:8000"],

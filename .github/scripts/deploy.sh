@@ -155,7 +155,7 @@ deploy_stack() {
     log_info "Performing health checks..."
     local all_healthy=true
 
-    check_service "Employee API"    "http://localhost:8000/health"  "200" 12 10 || all_healthy=false
+    check_service "Employee API (via KrakenD)"    "http://localhost:8080/health"  "200" 12 10 || all_healthy=false
     check_service "KrakenD Gateway" "http://localhost:8080/health"  "200" 12 10 || all_healthy=false
     check_service "Frontend"        "http://localhost:80/"          "200" 6  10 || all_healthy=false
     check_service "Prometheus"      "http://localhost:9090/-/healthy" "200" 6 10 || all_healthy=false

@@ -9,8 +9,11 @@ class EmployeeRepository:
         self.db = db
 
     def get_all(
-        self, skip: int = 0, limit: int = 100,
-        department: Optional[str] = None, status: Optional[str] = None,
+        self,
+        skip: int = 0,
+        limit: int = 100,
+        department: Optional[str] = None,
+        status: Optional[str] = None,
     ) -> list[Employee]:
         query = self.db.query(Employee)
         if department:
