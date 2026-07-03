@@ -97,6 +97,8 @@ services:
     ports:
       - "8080:8080"
       - "8090:8090"
+      - "9092:9092"
+      - "9093:9093"
     depends_on:
       employee-api:
         condition: service_healthy

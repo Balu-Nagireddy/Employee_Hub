@@ -21,6 +21,43 @@
       "prefix": "[KRAKEND]",
       "syslog": false,
       "stdout": true
+    },
+    "telemetry/opentelemetry": {
+      "service_name": "employee-hub-gateway",
+      "metric_reporting_period": 5,
+      "enabled_layers": {
+        "backend": true,
+        "router": true,
+        "pipe": true
+      },
+      "exporters": {
+        "prometheus": [
+          {
+            "name": "local_prometheus",
+            "port": 9093,
+            "process_metrics": true,
+            "go_metrics": true
+          }
+        ]
+      }
+    },
+    "telemetry/opencensus": {
+      "sample_rate": 100,
+      "reporting_period": 0,
+      "enabled_layers": {
+        "backend": true,
+        "router": true,
+        "pipe": true
+      },
+      "exporters": {
+        "prometheus": {
+          "port": 9092,
+          "namespace": "krakend",
+          "tag_method": true,
+          "tag_path": true,
+          "tag_statuscode": true
+        }
+      }
     }
   },
   "endpoints": [
