@@ -89,7 +89,7 @@ services:
     restart: always
 
   postgres-exporter:
-    image: prometheuscommunity/postgres-exporter:latest
+    image: prometheuscommunity/postgres-exporter:v0.17.1
     container_name: employee-hub-postgres-exporter
     environment:
       DATA_SOURCE_NAME: "postgresql://${DB_USER:?DB_USER is required}:${DB_PASSWORD:?DB_PASSWORD is required}@${DB_HOST:?DB_HOST is required}:${DB_PORT:-5432}/${DB_NAME:?DB_NAME is required}?sslmode=require"
@@ -98,7 +98,7 @@ services:
     restart: always
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.5.0
     container_name: employee-hub-prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -119,7 +119,7 @@ services:
     restart: always
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:12.0.2
     container_name: employee-hub-grafana
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
@@ -139,18 +139,34 @@ services:
     restart: always
 
   loki:
-    image: grafana/loki:latest
+    image: grafana/loki:3.5.2
     container_name: employee-hub-loki
-    command: -config.file=/etc/loki/loki-config.yml
+
+    command:
+      - "-config.file=/etc/loki/loki-config.yml"
+
+    user: "0"
+
     volumes:
-      - ../../monitoring/loki/loki-config.yml:/etc/loki/loki-config.yml
+      - ./monitoring/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
       - loki_data:/tmp/loki
+
+    ports:
+      - "3100:3100"
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3100/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
     networks:
       - employee-hub-network
-    restart: always
+
+    restart: unless-stopped
 
   promtail:
-    image: grafana/promtail:latest
+    image: grafana/promtail:3.5.2
     container_name: employee-hub-promtail
     command: -config.file=/etc/promtail/promtail-config.yml
     volumes:
@@ -164,7 +180,7 @@ services:
     restart: always
 
   node-exporter:
-    image: prom/node-exporter:latest
+    image: prom/node-exporter:v1.9.1
     container_name: employee-hub-node-exporter
     command:
       - "--path.rootfs=/host"
