@@ -6,33 +6,145 @@ Built with **FastAPI**, **React**, **KrakenD**, **PostgreSQL**, **Prometheus**, 
 
 ---
 
-## Architecture
+## 📊 Architecture
 
 ```text
-Browser ──▶ Nginx ──▶ KrakenD Gateway ──▶ FastAPI Backend ──▶ RDS PostgreSQL
-             │           │                      │
-             │     ┌─────┴─────┐                │
-             │     │ Monitoring │                │
-             │     │ Prometheus │                │
-             │     │  Grafana   │                │
-             │     │   Loki     │                │
-             └─────┴── Promtail ┘────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                            AWS Cloud                                   │
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │                    VPC (10.0.0.0/16)                           │   │
+│  │                                                                  │   │
+│  │  ┌───────────────────────────┐  ┌──────────────────────────┐   │   │
+│  │  │    Public Subnets         │  │   Private Subnets        │   │   │
+│  │  │    (10.0.0.0/24)          │  │   (10.0.10.0/24)         │   │   │
+│  │  │                           │  │                          │   │   │
+│  │  │  ┌─────────────────────┐ │  │  ┌────────────────────┐ │   │   │
+│  │  │  │  EC2 t3.micro       │ │  │  │  RDS PostgreSQL    │ │   │   │
+│  │  │  │                     │ │  │  │  db.t3.micro       │ │   │   │
+│  │  │  │  ┌───────────────┐ │ │  │  │                    │ │   │   │
+│  │  │  │  │    Nginx      │ │ │  │  │  • Private Subnets │ │   │   │
+│  │  │  │  │    :80        │ │ │  │  │  • No Public IP    │ │   │   │
+│  │  │  │  └───────────────┘ │ │  │  │  • AES-256 Encrypt │ │   │   │
+│  │  │  │  ┌───────────────┐ │ │  │  │  • SSL Required    │ │   │   │
+│  │  │  │  │   KrakenD     │ │ │  │  └────────────────────┘ │   │   │
+│  │  │  │  │   :8080       │ │ │  │                          │   │   │
+│  │  │  │  └───────────────┘ │ │  │  ┌────────────────────┐ │   │   │
+│  │  │  │  ┌───────────────┐ │ │  │  │  Monitoring Stack  │ │   │   │
+│  │  │  │  │   FastAPI     │ │ │  │  │  ┌──────────────┐ │ │   │   │
+│  │  │  │  │   :8000       │ │ │  │  │  │  Prometheus │ │ │   │   │
+│  │  │  │  └───────────────┘ │ │  │  │  │  :9090      │ │ │   │   │
+│  │  │  │  ┌───────────────┐ │ │  │  │  └──────────────┘ │ │   │   │
+│  │  │  │  │  Prometheus   │ │ │  │  │  ┌──────────────┐ │ │   │   │
+│  │  │  │  │  :9090        │ │ │  │  │  │  Grafana     │ │ │   │   │
+│  │  │  │  └───────────────┘ │ │  │  │  │  :3001       │ │ │   │   │
+│  │  │  │  ┌───────────────┐ │ │  │  │  └──────────────┘ │ │   │   │
+│  │  │  │  │   Grafana     │ │ │  │  │  ┌──────────────┐ │ │   │   │
+│  │  │  │  │   :3001       │ │ │  │  │  │    Loki      │ │ │   │   │
+│  │  │  │  └───────────────┘ │ │  │  │  │   :3100      │ │ │   │   │
+│  │  │  │  ┌───────────────┐ │ │  │  │  └──────────────┘ │ │   │   │
+│  │  │  │  │     Loki      │ │ │  │  │  ┌──────────────┐ │ │   │   │
+│  │  │  │  │    :3100      │ │ │  │  │  │   Promtail   │ │ │   │   │
+│  │  │  │  └───────────────┘ │ │  │  │  │   (Logs)     │ │ │   │   │
+│  │  │  │  ┌───────────────┐ │ │  │  │  └──────────────┘ │ │   │   │
+│  │  │  │  │   Promtail    │ │ │  │  └────────────────────┘ │   │   │
+│  │  │  │  │   (Logs)      │ │ │  │                          │   │   │
+│  │  │  │  └───────────────┘ │ │  │                          │   │   │
+│  │  │  └─────────────────────┘ │  └──────────────────────────┘   │   │
+│  │  │                           │                                  │   │
+│  │  └───────────────────────────┘                                  │   │
+│  │                                                                  │   │
+│  │  ┌──────────────────────────────────────────────────────────┐   │   │
+│  │  │  Internet Gateway (IGW) - Direct Internet Access         │   │   │
+│  │  └──────────────────────────────────────────────────────────┘   │   │
+│  │                                                                  │   │
+│  │  ┌──────────────────────────────────────────────────────────┐   │   │
+│  │  │  No NAT Gateway - Private subnets are isolated           │   │   │
+│  │  └──────────────────────────────────────────────────────────┘   │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
-
-### Key Design Decisions
-
-| Decision | Choice | Why |
-|----------|--------|-----|
-| **API Gateway** | KrakenD (self-hosted) | ALB costs $20+/month; KrakenD runs on the same EC2 at no extra cost |
-| **Orchestration** | Docker Compose | ECS Fargate costs $30+/month; single-node deployment doesn't need it |
-| **Compute** | 1x EC2 t3.micro | Free Tier eligible ($8.47/month normally); 6 containers fit comfortably |
-| **NAT Gateway** | None | $35+/month saved; RDS in private subnets doesn't need outbound internet |
-| **Database** | RDS in private subnets | Industry best practice; only accessible from EC2 security group |
-| **Logging** | Loki + Promtail | CloudWatch Logs costs $0.50/GB ingested; Loki on EC2 is free |
 
 ---
 
-## How to Set Up and Run the Infrastructure
+## 📁 Project Structure
+
+```text
+Employee_Hub/
+├── .github/                    # GitHub Actions workflows
+│   ├── workflows/
+│   │   ├── ci.yml              # CI pipeline
+│   │   ├── security.yml        # Security scanning
+│   │   ├── docker-build.yml    # Docker build and push
+│   │   ├── deploy.yml          # Deployment to EC2
+│   │   ├── rollback.yml        # Automated rollback
+│   │   └── terraform.yml       # Infrastructure management
+│   └── actions/                # Reusable actions
+├── terraform/                  # Infrastructure as Code
+│   ├── main.tf
+│   ├── variables.tf
+│   ├── outputs.tf
+│   ├── vpc.tf
+│   ├── subnets.tf
+│   ├── ec2.tf
+│   └── rds.tf
+├── services/                   # Application services
+│   ├── employee-api/           # FastAPI backend
+│   ├── frontend/               # React frontend
+│   └── gateway/                # KrakenD API Gateway
+├── deployments/                # Deployment configurations
+│   └── docker/
+│       ├── docker-compose.yml
+│       ├── docker-compose.prod.yml
+│       ├── prometheus.yml
+│       ├── grafana-datasources.yml
+│       └── loki-config.yml
+└── docs/                       # Documentation
+    ├── architecture.md
+    ├── ci-cd.md
+    ├── deployment.md
+    ├── GITHUB_SETUP.md
+    └── rollback.md
+```
+
+---
+
+## 🛠️ Technology Stack
+
+### Infrastructure
+- **Terraform** - Infrastructure as Code
+- **AWS** - Cloud Provider
+  - VPC with Public/Private Subnets
+  - EC2 (t3.micro)
+  - RDS PostgreSQL (db.t3.micro)
+  - Security Groups, IAM
+
+### Application
+- **React + Vite + TypeScript** - Frontend
+- **KrakenD** - API Gateway (Self-hosted, replaces ALB)
+- **FastAPI + Python** - Backend
+- **SQLAlchemy + Alembic** - ORM and Migrations
+- **PostgreSQL** - Database
+
+### DevOps
+- **Docker** - Containerization
+- **Docker Compose** - Container Orchestration (replaces ECS/EKS)
+- **GitHub Actions** - CI/CD
+- **Trivy** - Security Scanning
+- **Amazon ECR** - Container Registry
+- **AWS Systems Manager** - Deployment (no SSH)
+
+### Monitoring & Logging
+- **Prometheus** - Metrics Collection (replaces CloudWatch)
+- **Grafana** - Visualization
+- **Loki** - Log Aggregation (replaces CloudWatch Logs)
+- **Promtail** - Log Collection
+- **Node Exporter** - Host Metrics
+- **PostgreSQL Exporter** - Database Metrics
+
+---
+
+## 🚀 How to Set Up and Run the Infrastructure
 
 ### Prerequisites
 - Docker & Docker Compose
@@ -79,29 +191,73 @@ Deployment is fully automated using GitHub Actions. Upon merging code to the `ma
 
 ---
 
-## Security Considerations
+## 🔒 Security
 
-- **Private Database**: Amazon RDS is deployed in private subnets without public IPs. It is only accessible from the EC2 instance Security Group.
-- **IMDSv2**: Enforced on EC2 to prevent SSRF vulnerabilities.
-- **Least Privilege IAM**: EC2 instances only have permissions required for AWS Systems Manager (SSM). No SSH keys are provisioned; all access is via SSM Session Manager.
-- **Container Isolation**: Docker Compose manages containers in an isolated user-defined bridge network.
-- **Encrypted Storage**: EBS root volumes and RDS databases are encrypted using AES-256.
-- **Network Filtering**: Security Groups strictly restrict inbound access to ports 80 (Frontend), 3001 (Grafana), and 9090 (Prometheus).
-- **SSL Database Connections**: Configured `sslmode=require` in application connection strings.
+### Network Security
+- RDS in private subnets (no public access)
+- Security Groups with least-privilege rules
+- No NAT Gateway (reduced attack surface)
+- No SSH exposed - SSM Session Manager only
+
+### Data Security
+- EBS root volume encrypted (AES-256)
+- RDS encrypted at rest (AES-256)
+- SSL required for database connections (`sslmode=require`)
+
+### Access Control
+- IAM least-privilege roles
+- SSM Session Manager (no SSH keys)
+- GitHub Secrets for credentials
+- IMDSv2 enforced on EC2
 
 ---
 
-## Cost Optimization Measures
+## 📊 Monitoring Dashboards
 
-- **Zero Cloud Spend Architecture**: The entire platform runs within the AWS Free Tier limitations.
-- **Single EC2 Node**: Utilizing a `t3.micro` instance to run all application and monitoring containers via Docker Compose instead of costly ECS clusters.
-- **Self-Hosted API Gateway**: Replacing AWS Application Load Balancer ($20+/month) with a lightweight, containerized KrakenD instance.
-- **Self-Hosted Observability**: Using Prometheus, Grafana, and Loki locally instead of paying for CloudWatch Metrics and Logs ($0.50/GB).
-- **No NAT Gateway**: Bypassing the need for a NAT Gateway ($35+/month) by structuring the VPC such that the private RDS instance communicates only internally.
+### Infrastructure Dashboard
+- CPU, Memory, Disk usage
+- Network traffic
+- System load
+- Running processes
+
+### Application Dashboard
+- Request rate by endpoint
+- Response time and latency
+- HTTP status codes
+- Error rate
+- Active database connections
+
+### Database Dashboard
+- Connections and transactions
+- Database size trend
+- Cache hit ratio
+- Query performance
 
 ---
 
-## Secret Management
+## 💰 Cost Optimization
+
+| Service | Standard Architecture | Free Tier Implementation | Savings |
+|---------|----------------------|--------------------------|---------|
+| EC2 Instances | $8.47/month | $0 (Free Tier) | $8.47 |
+| RDS | $14.40/month | $0 (Free Tier) | $14.40 |
+| ALB | $20.00+/month | $0 (KrakenD) | $20.00+ |
+| NAT Gateway | $35.00/month | $0 (Not used) | $35.00 |
+| ECS Fargate | $30.00+/month | $0 (Docker Compose) | $30.00+ |
+| CloudWatch Logs | $15.00+/month | $0 (Loki) | $15.00+ |
+| **TOTAL** | **~$200+/month** | **$0** | **~$200+** |
+
+### Key Cost-Saving Decisions
+
+1. **KrakenD instead of ALB**: Self-hosted API Gateway provides superior features at $0
+2. **No NAT Gateway**: RDS in private subnets doesn't need outbound internet
+3. **Docker Compose instead of ECS/EKS**: Single-node deployment doesn't need orchestration
+4. **Self-hosted monitoring**: Prometheus-Grafana-Loki on existing EC2
+5. **Single EC2 instance**: Sufficient resources for all 6 containers
+
+---
+
+## 🔑 Secret Management
 
 Secrets and sensitive configurations are managed using secure industry standards:
 1. **GitHub Secrets**: Used exclusively in CI/CD pipelines (e.g., AWS credentials, GHCR tokens).
@@ -110,7 +266,7 @@ Secrets and sensitive configurations are managed using secure industry standards
 
 ---
 
-## Backup Strategy
+## 💾 Backup Strategy
 
 1. **Database Backups**: Amazon RDS is configured with automated daily snapshots with a 7-day retention period. Point-in-time recovery (PITR) is enabled.
 2. **Infrastructure State**: Terraform state is stored securely in a versioned Amazon S3 bucket, preventing accidental deletion and allowing for state rollback if corrupted.
@@ -118,7 +274,7 @@ Secrets and sensitive configurations are managed using secure industry standards
 
 ---
 
-## API Reference
+## 🔌 API Reference
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -129,3 +285,8 @@ Secrets and sensitive configurations are managed using secure industry standards
 | DELETE | `/api/employees/{id}` | Delete employee |
 | GET | `/api/health` | Health check |
 
+---
+
+## 📜 License
+
+MIT

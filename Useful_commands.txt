@@ -1,0 +1,57 @@
+aws configure
+terraform version
+terraform fmt -recursive
+terraform validate
+terraform init
+terraform plan
+terraform plan -out=tfplan
+terraform apply tfplan
+
+terraform init -migrate-state
+terraform output
+
+
+ssh -i ~/Downloads/employeehub-key.pem ec2-user@13.233.88.23
+sudo cloud-init status
+sudo tail -100 /var/log/employee-hub-deploy.log
+sudo journalctl -u cloud-final
+
+
+docker --version
+docker compose version
+git --version
+python3 --version
+
+docker ps -a
+
+nc -zv employee-hub-db.czeo88m4c7rm.ap-south-1.rds.amazonaws.com 5432 if not wrok
+telnet employee-hub-db.czeo88m4c7rm.ap-south-1.rds.amazonaws.com 5432
+
+
+sudo cloud-init status --long
+sudo tail -200 /var/log/cloud-init-output.log
+sudo tail -200 /var/log/cloud-init.log
+
+
+sudo cat /var/log/employee-hub-deploy.log
+sudo tail -100 /var/log/employee-hub-deploy.log
+
+dnf search docker-compose
+dnf list available | grep compose
+
+
+sudo systemctl enable amazon-cloudwatch-agent
+
+sudo systemctl start amazon-cloudwatch-agent
+
+
+unset AWS_ACCESS_KEY_ID
+unset AWS_SECRET_ACCESS_KEY
+unset AWS_SESSION_TOKEN
+unset AWS_PROFILE
+unset AWS_REGION
+unset AWS_DEFAULT_REGION
+unset AWS_ROLE_ARN
+unset AWS_WEB_IDENTITY_TOKEN_FILE
+unset AWS_SHARED_CREDENTIALS_FILE
+unset AWS_CONFIG_FILE
