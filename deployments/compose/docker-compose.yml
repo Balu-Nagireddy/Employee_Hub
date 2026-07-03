@@ -1,0 +1,11 @@
+# This is a reference file.
+# The main docker-compose.yml is located at the project root.
+# See ../docker-compose.yml
+
+version: "3.8"
+
+services:
+  postgres:
+    extends:
+      file: ../../docker-compose.yml
+      service: postgres

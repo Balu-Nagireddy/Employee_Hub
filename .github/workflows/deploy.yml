@@ -1,0 +1,457 @@
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      image_tag:
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    name: Immutable SSM Deploy
+    runs-on: ubuntu-latest
+    environment: Workflows
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # STEP 1: Configure AWS Credentials
+      # -----------------------------------------------------------------------
+      - name: AWS Authentication
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-south-1' }}
+
+      # -----------------------------------------------------------------------
+      # STEP 2: Discover EC2 Instance Dynamically
+      # -----------------------------------------------------------------------
+      - name: Discover Target EC2 Instance
+        id: discover
+        run: |
+          echo "🔍 Discovering running EC2 instances with Tag Name=employee-hub-app-instance..."
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=employee-hub-app-instance" "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].InstanceId" \
+            --output text)
+          
+          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
+            echo "❌ ERROR: No running EC2 instance found with tag Name=employee-hub-app-instance"
+            exit 1
+          fi
+          
+          echo "✅ Discovered EC2 Instance ID: $INSTANCE_ID"
+          echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+          
+          # Fetch some basic info for the summary
+          PUBLIC_IP=$(aws ec2 describe-instances \
+            --instance-ids "$INSTANCE_ID" \
+            --query "Reservations[0].Instances[0].PublicIpAddress" \
+            --output text)
+          echo "public_ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
+
+      # -----------------------------------------------------------------------
+      # STEP 3: Verify SSM Availability
+      # -----------------------------------------------------------------------
+      - name: Verify SSM Connection
+        id: ssm_check
+        run: |
+          INSTANCE_ID="${{ steps.discover.outputs.instance_id }}"
+          echo "🔍 Checking SSM ping status for instance $INSTANCE_ID..."
+          
+          SSM_STATUS=$(aws ssm describe-instance-information \
+            --filters "Key=InstanceIds,Values=$INSTANCE_ID" \
+            --query "InstanceInformationList[0].PingStatus" \
+            --output text)
+          
+          if [ "$SSM_STATUS" != "Online" ]; then
+            echo "❌ ERROR: Instance $INSTANCE_ID is not Online in AWS Systems Manager (SSM)."
+            echo "Current Status: $SSM_STATUS"
+            echo "Please ensure the SSM agent is running on the instance and has the correct IAM Role."
+            exit 1
+          fi
+          echo "✅ SSM ping status is Online."
+
+      # -----------------------------------------------------------------------
+      # STEP 4: Package Deployment Bundle Dynamically
+      # -----------------------------------------------------------------------
+      - name: Package Deployment Files
+        id: package
+        run: |
+          echo "📦 Packaging compose and monitoring configuration files..."
+          mkdir -p dist/deployments/docker
+          mkdir -p dist/monitoring
+          
+          cp deployments/docker/docker-compose.prod.yml dist/deployments/docker/
+          cp -r monitoring/* dist/monitoring/
+          
+          # Include nginx if present in the repository
+          if [ -d nginx ]; then
+            cp -r nginx dist/
+          fi
+          
+          cd dist
+          tar -czf ../deploy-bundle.tar.gz *
+          cd ..
+          
+          # Base64 encode the bundle to safely transmit it via SSM send-command
+          BUNDLE_B64=$(base64 -w 0 deploy-bundle.tar.gz)
+          echo "✅ Bundle packaged successfully. Base64 length: ${#BUNDLE_B64} characters."
+          
+          # Write to file to pass large string across steps safely without env size limits
+          echo "$BUNDLE_B64" > bundle.b64
+
+      # -----------------------------------------------------------------------
+      # STEP 5: Pre-Deployment State Capture (for Rollback Hook)
+      # -----------------------------------------------------------------------
+      - name: Capture Previous State
+        id: pre_deploy
+        run: |
+          INSTANCE_ID="${{ steps.discover.outputs.instance_id }}"
+          echo "🔍 Capturing currently running image tag for rollback fallback..."
+          
+          # Use jq to construct parameters to prevent shell escaping/nested quote issues
+          CMD_JSON=$(jq -n --arg cmd 'if [ -f /opt/employee-hub/.env ]; then grep ^IMAGE_TAG= /opt/employee-hub/.env | cut -d= -f2; else echo ""; fi' '{"commands": [$cmd]}')
+          
+          # Retrieve the previous IMAGE_TAG if the .env file exists on the host
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "$CMD_JSON" \
+            --query "Command.CommandId" \
+            --output text)
+          
+          # Poll command output
+          while true; do
+            STATUS=$(aws ssm list-command-invocations --command-id "$CMD_ID" --query "CommandInvocations[0].Status" --output text)
+            if [ "$STATUS" = "Success" ] || [ "$STATUS" = "Failed" ] || [ "$STATUS" = "TimedOut" ]; then
+              break
+            fi
+            sleep 2
+          done
+          
+          PREV_TAG=""
+          if [ "$STATUS" = "Success" ]; then
+            PREV_TAG=$(aws ssm get-command-invocation \
+              --command-id "$CMD_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --query "StandardOutputContent" \
+              --output text | tr -d '\r\n[:space:]')
+          fi
+          
+          if [ -z "$PREV_TAG" ]; then
+            echo "ℹ️ No previous image tag found. This is a fresh deployment."
+          else
+            echo "✅ Captured previous running tag: $PREV_TAG"
+          fi
+          echo "previous_tag=$PREV_TAG" >> $GITHUB_OUTPUT
+
+      # -----------------------------------------------------------------------
+      # STEP 6: Execute SSM Deployment & Health Check
+      # -----------------------------------------------------------------------
+      - name: Execute Deployment
+        id: execute_deploy
+        run: |
+          INSTANCE_ID="${{ steps.discover.outputs.instance_id }}"
+          IMAGE_TAG="${{ inputs.image_tag }}"
+          IMAGE_PREFIX="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          BUNDLE_B64=$(cat bundle.b64)
+          
+          echo "🚀 Starting SSM remote execution..."
+          
+          # We write the installation shell script inline to be executed on the target host
+          DEPLOY_SCRIPT=$(cat << 'EOF'
+          set -euo pipefail
+          STACK_DIR="/opt/employee-hub"
+          mkdir -p "$STACK_DIR"
+          cd "$STACK_DIR"
+          
+          echo "📥 Unpacking deployment configuration..."
+          echo "BASE64_PLACEHOLDER" > bundle.b64
+          base64 -d bundle.b64 > bundle.tar.gz
+          tar -xzf bundle.tar.gz -C "$STACK_DIR"
+          rm -f bundle.b64 bundle.tar.gz
+          
+          echo "✏️ Updating environment variables in .env..."
+          touch .env
+          sed -i '/^IMAGE_TAG=/d' .env
+          sed -i '/^REGISTRY=/d' .env
+          echo "IMAGE_TAG=IMAGE_TAG_PLACEHOLDER" >> .env
+          echo "REGISTRY=IMAGE_PREFIX_PLACEHOLDER" >> .env
+          
+          echo "🔑 Authenticating Docker to GHCR..."
+          echo "GHCR_TOKEN_PLACEHOLDER" | docker login ghcr.io -u "GHCR_ACTOR_PLACEHOLDER" --password-stdin
+          
+          echo "📥 Pulling new images from GHCR..."
+          docker compose -f deployments/docker/docker-compose.prod.yml --env-file .env pull
+          
+          echo "🚀 Re-launching production stack..."
+          docker compose -f deployments/docker/docker-compose.prod.yml --env-file .env up -d --remove-orphans
+          
+          echo "🧹 Cleaning up unused Docker images..."
+          docker image prune -f
+          
+          echo "✅ Deployment commands executed successfully."
+          EOF
+          )
+          
+          # Replace script placeholders with actual values safely
+          DEPLOY_SCRIPT="${DEPLOY_SCRIPT//BASE64_PLACEHOLDER/$BUNDLE_B64}"
+          DEPLOY_SCRIPT="${DEPLOY_SCRIPT//IMAGE_TAG_PLACEHOLDER/$IMAGE_TAG}"
+          DEPLOY_SCRIPT="${DEPLOY_SCRIPT//IMAGE_PREFIX_PLACEHOLDER/$IMAGE_PREFIX}"
+          DEPLOY_SCRIPT="${DEPLOY_SCRIPT//GHCR_TOKEN_PLACEHOLDER/${{ secrets.GITHUB_TOKEN }}}"
+          DEPLOY_SCRIPT="${DEPLOY_SCRIPT//GHCR_ACTOR_PLACEHOLDER/${{ github.actor }}}"
+          
+          # Use jq to format parameters safely and avoid CLI command validation errors with nested quotes
+          CMD_JSON=$(jq -n --arg cmd "$DEPLOY_SCRIPT" '{"commands": [$cmd]}')
+          
+          # Send deployment command via SSM
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "$CMD_JSON" \
+            --query "Command.CommandId" \
+            --output text)
+            
+          echo "SSM Command Sent. Command ID: $CMD_ID. Polling for completion..."
+          
+          while true; do
+            STATUS=$(aws ssm list-command-invocations --command-id "$CMD_ID" --query "CommandInvocations[0].Status" --output text)
+            if [ "$STATUS" = "Success" ] || [ "$STATUS" = "Failed" ] || [ "$STATUS" = "TimedOut" ] || [ "$STATUS" = "Cancelled" ]; then
+              break
+            fi
+            sleep 5
+          done
+          
+          # Print remote stdout and stderr
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query "StandardOutputContent" --output text
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query "StandardErrorContent" --output text >&2
+          
+          if [ "$STATUS" != "Success" ]; then
+            echo "❌ ERROR: Deployment command failed on the remote instance."
+            exit 1
+          fi
+          echo "✅ Remote deployment completed successfully."
+
+      # -----------------------------------------------------------------------
+      # STEP 7: Verify Application Health
+      # -----------------------------------------------------------------------
+      - name: Verify Deployment Health
+        id: verify
+        run: |
+          INSTANCE_ID="${{ steps.discover.outputs.instance_id }}"
+          echo "🔍 Running health verification checks on host..."
+          
+          VERIFY_SCRIPT=$(cat << 'EOF'
+          set -eo pipefail
+          STACK_DIR="/opt/employee-hub"
+          cd "$STACK_DIR"
+          
+          echo "--- docker ps ---"
+          docker ps
+          
+          echo "--- docker compose ps ---"
+          docker compose -f deployments/docker/docker-compose.prod.yml --env-file .env ps
+          
+          echo "--- Checking endpoint accessibility ---"
+          # 1. Check Frontend (Nginx container on port 80)
+          if curl -s -f --connect-timeout 5 http://localhost/ > /dev/null; then
+            echo "✅ Frontend: HEALTHY"
+          else
+            echo "❌ Frontend: UNHEALTHY"
+            exit 1
+          fi
+          
+          # 2. Check KrakenD API Gateway (Port 8080)
+          if curl -s -f --connect-timeout 5 http://localhost:8080/health > /dev/null; then
+            echo "✅ API Gateway: HEALTHY"
+          else
+            echo "❌ API Gateway: UNHEALTHY"
+            exit 1
+          fi
+          
+          # 3. Check Employee API (internal network, checked via container exec)
+          if docker exec employee-hub-api python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" > /dev/null 2>&1; then
+            echo "✅ Employee API: HEALTHY"
+          else
+            echo "❌ Employee API: UNHEALTHY"
+            exit 1
+          fi
+          
+          echo "🎉 All critical services verified healthy!"
+          EOF
+          )
+          
+          # Safe JSON parameters formatting
+          CMD_JSON=$(jq -n --arg cmd "$VERIFY_SCRIPT" '{"commands": [$cmd]}')
+          
+          # Send verification command via SSM
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "$CMD_JSON" \
+            --query "Command.CommandId" \
+            --output text)
+            
+          while true; do
+            STATUS=$(aws ssm list-command-invocations --command-id "$CMD_ID" --query "CommandInvocations[0].Status" --output text)
+            if [ "$STATUS" = "Success" ] || [ "$STATUS" = "Failed" ] || [ "$STATUS" = "TimedOut" ]; then
+              break
+            fi
+            sleep 3
+          done
+          
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query "StandardOutputContent" --output text
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query "StandardErrorContent" --output text >&2
+          
+          if [ "$STATUS" != "Success" ]; then
+            echo "❌ ERROR: Health checks failed. Services are not reporting healthy."
+            exit 1
+          fi
+
+      # -----------------------------------------------------------------------
+      # STEP 8: Failure Handler & Rollback (Executes only on failure)
+      # -----------------------------------------------------------------------
+      - name: Gather Diagnostic Logs & Rollback on Failure
+        if: failure()
+        run: |
+          INSTANCE_ID="${{ steps.discover.outputs.instance_id }}"
+          PREV_TAG="${{ steps.pre_deploy.outputs.previous_tag }}"
+          
+          if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ] || [ "$INSTANCE_ID" = "[]" ]; then
+            echo "⚠️ Diagnostics/Rollback skipped because target EC2 Instance ID is empty or invalid."
+            echo "The failure likely occurred during early stages (Checkout, AWS Auth, or Instance Discovery)."
+            exit 0
+          fi
+          
+          echo "⚠️ Deployment or verification failed. Starting diagnostics..."
+          
+          DIAGNOSTIC_SCRIPT=$(cat << 'EOF'
+          echo "========================================="
+          echo "          DIAGNOSTIC DUMP"
+          echo "========================================="
+          STACK_DIR="/opt/employee-hub"
+          cd "$STACK_DIR" || true
+          
+          echo "--- Docker Process List ---"
+          docker ps -a
+          echo "--- Docker Compose Container Statuses ---"
+          docker compose -f deployments/docker/docker-compose.prod.yml --env-file .env ps -a || true
+          echo "--- Docker Daemon Status (systemd) ---"
+          systemctl status docker --no-pager || true
+          echo "--- SSM Agent Status (systemd) ---"
+          systemctl status amazon-ssm-agent --no-pager || true
+          echo "--- Application Stack logs (docker compose logs) ---"
+          docker compose -f deployments/docker/docker-compose.prod.yml --env-file .env logs --tail=100 || true
+          echo "--- System Log Excerpt (journalctl) ---"
+          journalctl -u docker.service -n 50 --no-pager || true
+          EOF
+          )
+          
+          # Safe parameters formatting
+          CMD_JSON=$(jq -n --arg cmd "$DIAGNOSTIC_SCRIPT" '{"commands": [$cmd]}')
+          
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters "$CMD_JSON" \
+            --query "Command.CommandId" \
+            --output text)
+            
+          while true; do
+            STATUS=$(aws ssm list-command-invocations --command-id "$CMD_ID" --query "CommandInvocations[0].Status" --output text)
+            if [ "$STATUS" = "Success" ] || [ "$STATUS" = "Failed" ] || [ "$STATUS" = "TimedOut" ]; then
+              break
+            fi
+            sleep 3
+          done
+          
+          # Save diagnostic output to log file to upload as artifact
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --query "StandardOutputContent" --output text > diagnostic-report.log
+          
+          echo "--- Diagnostic Report ---"
+          cat diagnostic-report.log
+          
+          # -------------------------------------------------------------------
+          # Rollback Action
+          # -------------------------------------------------------------------
+          if [ -n "$PREV_TAG" ]; then
+            echo "🔄 Rolling back deployment to previous tag: $PREV_TAG"
+            
+            ROLLBACK_SCRIPT=$(cat << 'EOF'
+            set -euo pipefail
+            STACK_DIR="/opt/employee-hub"
+            cd "$STACK_DIR"
+            
+            sed -i '/^IMAGE_TAG=/d' .env
+            echo "IMAGE_TAG=PREV_TAG_PLACEHOLDER" >> .env
+            
+            echo "🔄 Starting rollback compose deployment..."
+            docker compose -f deployments/docker/docker-compose.prod.yml --env-file .env up -d
+          EOF
+            )
+            ROLLBACK_SCRIPT="${ROLLBACK_SCRIPT//PREV_TAG_PLACEHOLDER/$PREV_TAG}"
+            
+            RB_CMD_JSON=$(jq -n --arg cmd "$ROLLBACK_SCRIPT" '{"commands": [$cmd]}')
+            
+            RB_CMD_ID=$(aws ssm send-command \
+              --instance-ids "$INSTANCE_ID" \
+              --document-name "AWS-RunShellScript" \
+              --parameters "$RB_CMD_JSON" \
+              --query "Command.CommandId" \
+              --output text)
+              
+            while true; do
+              RB_STATUS=$(aws ssm list-command-invocations --command-id "$RB_CMD_ID" --query "CommandInvocations[0].Status" --output text)
+              if [ "$RB_STATUS" = "Success" ] || [ "$RB_STATUS" = "Failed" ] || [ "$RB_STATUS" = "TimedOut" ]; then
+                break
+              fi
+              sleep 3
+            done
+            
+            aws ssm get-command-invocation --command-id "$RB_CMD_ID" --instance-id "$INSTANCE_ID" --query "StandardOutputContent" --output text
+            
+            if [ "$RB_STATUS" = "Success" ]; then
+              echo "✅ Rollback completed successfully."
+            else
+              echo "❌ CRITICAL: Rollback execution failed."
+            fi
+          else
+            echo "ℹ️ No previous tag found to roll back to."
+          fi
+
+      - name: Upload Diagnostic Logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-diagnostic-logs
+          path: diagnostic-report.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+      # -----------------------------------------------------------------------
+      # STEP 9: Build Deployment Job Summary
+      # -----------------------------------------------------------------------
+      - name: Build Job Summary
+        if: always()
+        run: |
+          echo "### 🚀 Employee Hub Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Details |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Environment** | ${{ inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Target EC2 Instance** | \`${{ steps.discover.outputs.instance_id }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Public IP** | [${{ steps.discover.outputs.public_ip }}](http://${{ steps.discover.outputs.public_ip }}) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Deployment Tag** | \`${{ inputs.image_tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Status** | ${{ job.status == 'success' && '✅ SUCCESS' || '❌ FAILED' }} |" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.pre_deploy.outputs.previous_tag }}" != "" ]; then
+            echo "| **Previous Tag** | \`${{ steps.pre_deploy.outputs.previous_tag }}\` |" >> $GITHUB_STEP_SUMMARY
+          fi

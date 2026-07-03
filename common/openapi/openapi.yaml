@@ -1,0 +1,203 @@
+openapi: "3.0.3"
+info:
+  title: Employee Hub API
+  description: Employee Management API with KrakenD Gateway
+  version: "1.0.0"
+  contact:
+    name: Employee Hub Team
+servers:
+  - url: http://localhost:8080
+    description: Local development via KrakenD Gateway
+  - url: http://localhost:8000
+    description: Direct FastAPI backend (development only)
+paths:
+  /employees:
+    get:
+      summary: List all employees
+      parameters:
+        - name: skip
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+        - name: department
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, inactive, terminated]
+      responses:
+        "200":
+          description: List of employees
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Employee"
+    post:
+      summary: Create a new employee
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmployeeCreate"
+      responses:
+        "201":
+          description: Employee created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Employee"
+        "409":
+          description: Conflict (duplicate code or email)
+  /employees/{id}:
+    get:
+      summary: Get employee by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Employee details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Employee"
+        "404":
+          description: Employee not found
+    put:
+      summary: Update employee
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmployeeUpdate"
+      responses:
+        "200":
+          description: Employee updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Employee"
+    delete:
+      summary: Delete employee
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Employee deleted
+  /health:
+    get:
+      summary: Health check
+      responses:
+        "200":
+          description: Service is healthy
+  /ready:
+    get:
+      summary: Readiness check
+      responses:
+        "200":
+          description: Service is ready
+  /live:
+    get:
+      summary: Liveness check
+      responses:
+        "200":
+          description: Service is alive
+components:
+  schemas:
+    Employee:
+      type: object
+      properties:
+        id:
+          type: integer
+        employee_code:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        department:
+          type: string
+        designation:
+          type: string
+        salary:
+          type: number
+        status:
+          type: string
+          enum: [active, inactive, terminated]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    EmployeeCreate:
+      type: object
+      required:
+        - employee_code
+        - name
+        - email
+        - department
+        - designation
+        - salary
+      properties:
+        employee_code:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        department:
+          type: string
+        designation:
+          type: string
+        salary:
+          type: number
+        status:
+          type: string
+          default: active
+    EmployeeUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        department:
+          type: string
+        designation:
+          type: string
+        salary:
+          type: number
+        status:
+          type: string

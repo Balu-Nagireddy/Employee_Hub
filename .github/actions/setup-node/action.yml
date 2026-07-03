@@ -1,0 +1,50 @@
+# =============================================================================
+# Setup Node.js Composite Action
+#
+# Sets up Node.js, caches node_modules, and installs frontend dependencies.
+# =============================================================================
+
+name: 'Setup Node.js'
+description: 'Sets up Node.js with npm caching and dependency installation'
+
+inputs:
+  node-version:
+    description: 'Node.js version to use'
+    required: false
+    default: '20'
+  working-directory:
+    description: 'Directory containing package.json'
+    required: false
+    default: 'services/frontend'
+  cache-key-prefix:
+    description: 'Prefix for cache key to avoid collisions'
+    required: false
+    default: 'npm'
+
+runs:
+  using: 'composite'
+
+  steps:
+    - name: Set up Node.js ${{ inputs.node-version }}
+      id: setup-node
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Cache node_modules
+      id: npm-cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.working-directory }}/node_modules
+        key: ${{ inputs.cache-key-prefix }}-${{ runner.os }}-${{ hashFiles(format('{0}/package-lock.json', inputs.working-directory)) }}
+        restore-keys: |
+          ${{ inputs.cache-key-prefix }}-${{ runner.os }}-${{ hashFiles(format('{0}/package.json', inputs.working-directory)) }}
+          ${{ inputs.cache-key-prefix }}-${{ runner.os }}-
+
+    - name: Install Node.js dependencies
+      shell: bash
+      run: |
+        if [ "${{ steps.npm-cache.outputs.cache-hit }}" != "true" ]; then
+          cd "${{ inputs.working-directory }}"
+          npm ci
+        fi

@@ -1,0 +1,15 @@
+# This file has been preserved as a reference.
+# The original .github/workflows/ci-cd.yml has been archived here.
+# See .github/workflows/ for the current modular pipeline.
+#
+# Original workflow: CI/CD Pipeline
+# Originally at: .github/workflows/ci-cd.yml
+# Archived on: July 2, 2026
+#
+# The new pipeline replaces this monolithic workflow with 6 modular workflows:
+#   ci.yml          — Continuous Integration
+#   security.yml    — Security scanning (Trivy + SARIF)
+#   docker-build.yml— Amazon ECR build & push
+#   deploy.yml      — SSM-based deployment to EC2
+#   rollback.yml    — Automated rollback
+#   terraform.yml   — Terraform IaC management

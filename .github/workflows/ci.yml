@@ -1,0 +1,111 @@
+# =============================================================================
+# CI/CD Orchestrator — The Hub
+#
+# This workflow manages the entire lifecycle from code push to deployment.
+# Sequence: CI -> Security -> Terraform -> Docker Build -> Deploy -> Summary
+# =============================================================================
+
+name: CI/CD Orchestrator
+
+on:
+  push:
+    branches: [github-actions, main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: employee-hub-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PROJECT_NAME: employee-hub
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  # Phase 1: Quality Gate
+  ci:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: ./.github/actions/setup-python
+        with:
+          python-version: '3.12'
+          working-directory: services/employee-api
+
+      - name: Run Python Checks
+        working-directory: services/employee-api
+        run: |
+          pip install flake8 black
+          python -m flake8 app --max-line-length=120 --exclude=__pycache__,alembic
+          python -m black --check app --line-length=120
+          python -m pytest tests/ -v
+
+      - name: Setup Node
+        uses: ./.github/actions/setup-node
+        with:
+          node-version: '20'
+          working-directory: services/frontend
+
+      - name: Run Frontend Checks
+        working-directory: services/frontend
+        run: |
+          npm install
+          npx tsc --noEmit
+          npm run build
+
+  # Phase 2: Security Gate
+  security:
+    name: Security Scan
+    needs: [ci]
+    uses: ./.github/workflows/security.yml
+    secrets: inherit
+
+  # Phase 3: Infrastructure
+  terraform:
+    name: Infrastructure
+    needs: [security]
+    uses: ./.github/workflows/terraform.yml
+    with:
+      environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
+    secrets: inherit
+
+  # Phase 4: Artifacts
+  docker:
+    name: Docker Build & Push
+    needs: [terraform]
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      image_tag: ${{ github.sha }}
+    secrets: inherit
+
+  # Phase 5: Deployment
+  deploy:
+    name: Deploy to EC2
+    needs: [docker]
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
+      image_tag: ${{ github.sha }}
+    secrets: inherit
+
+  # Phase 6: Summary
+  summary:
+    name: Deployment Summary
+    needs: [deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate Summary
+        run: |
+          echo "## 🚀 Deployment Report" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** ${{ needs.deploy.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment:** ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}" >> $GITHUB_STEP_SUMMARY
