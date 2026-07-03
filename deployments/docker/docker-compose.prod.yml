@@ -106,7 +106,7 @@ services:
       - "--web.console.libraries=/usr/share/prometheus/console_libraries"
       - "--web.console.templates=/usr/share/prometheus/consoles"
     volumes:
-      - ../../monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - /opt/employee-hub/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     ports:
       - "9090:9090"
@@ -126,8 +126,8 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
       GF_AUTH_ANONYMOUS_ENABLED: "true"
     volumes:
-      - ../../monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
-      - ../../monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - /opt/employee-hub/monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+      - /opt/employee-hub/monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
       - grafana_data:/var/lib/grafana
     ports:
       - "3001:3000"
@@ -148,7 +148,7 @@ services:
     user: "0"
 
     volumes:
-      - ./monitoring/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - /opt/employee-hub/monitoring/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
       - loki_data:/tmp/loki
 
     ports:
@@ -170,7 +170,7 @@ services:
     container_name: employee-hub-promtail
     command: -config.file=/etc/promtail/promtail-config.yml
     volumes:
-      - ../../monitoring/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml
+      - /opt/employee-hub/monitoring/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
       - /var/log:/var/log:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
     depends_on:
