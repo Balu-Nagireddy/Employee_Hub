@@ -50,7 +50,7 @@
             "uid": "P8E80F9AEF21F6940"
           },
           "editorMode": "builder",
-          "expr": "{container=~\".+\"} |= \"ERROR\" or |= \"error\"",
+          "expr": "{container=~\".+\"} |~ \"(?i)error\"",
           "queryType": "range",
           "refId": "A"
         }
